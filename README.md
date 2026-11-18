@@ -27,6 +27,7 @@ kembali Batu Matahari dari Warden Bayangan.
 - Linux dengan sesi X11 (misalnya Linux Mint, Ubuntu, Debian).
 - Compiler C++17 (`g++` atau `clang++`).
 - `make`.
+- Git (`git`) untuk instalasi cepat dan menu **Perbarui Game**.
 - Header pengembangan X11 (`libX11`).
 - Opsional: `libasound.so.2` untuk musik dan efek suara. Tanpa pustaka atau
   perangkat audio, game tetap berjalan dalam mode senyap.
@@ -34,7 +35,7 @@ kembali Batu Matahari dari Warden Bayangan.
 Di Debian/Ubuntu/Linux Mint:
 
 ```bash
-sudo apt install build-essential libx11-dev
+sudo apt install build-essential libx11-dev git
 ```
 
 Tidak diperlukan pustaka grafis lain. Header ALSA **tidak** dibutuhkan karena
@@ -52,11 +53,13 @@ chmod +x install.sh
 
 Skrip akan:
 
-1. Memeriksa compiler C++17, `make`, dan header X11.
+1. Memeriksa compiler C++17, `make`, `git`, dan header X11.
 2. Menawarkan pemasangan paket yang kurang melalui manajer paket distro
    (`apt`, `dnf`, `pacman`, `zypper`, atau `apk`).
-3. Membangun game dan menjalankan uji asap `--headless`.
-4. Menyiapkan folder `~/.aetheria` dan memasang launcher desktop ke
+3. Mengkloning sumber dari GitHub ke `~/.aetheria/source` bila belum ada, atau
+   memperbaruinya dengan `git pull --ff-only` saat pemasangan ulang.
+4. Membangun game dari salinan sumber itu dan menjalankan uji asap `--headless`.
+5. Memasang biner, peluncur, dan launcher desktop ke
    `~/.local/share/applications/aetheria.desktop`.
 
 Semua kebutuhan game disatukan dalam satu folder:
@@ -66,7 +69,7 @@ Semua kebutuhan game disatukan dalam satu folder:
   rpgcpp        biner game
   aetheria      peluncur; menjalankan game dari folder ini
   savegame.dat  dibuat saat pertama kali menyimpan
-  source        catatan checkout sumber untuk menu Perbarui Game
+  source/       salinan Git sumber game untuk menu Perbarui Game
 ```
 
 Opsi yang tersedia:
@@ -75,12 +78,13 @@ Opsi yang tersedia:
 | --- | --- |
 | `--dir DIR` | Folder data game (bawaan `~/.aetheria`). |
 | `--prefix DIR` | Alias lama untuk `--dir`. |
+| `--repo URL` | Repositori sumber (bawaan `https://github.com/Hamzah82/AetheriaRPG.git`). |
 | `--jobs N` | Jumlah pekerjaan build (bawaan jumlah CPU). |
-| `--build-only` | Hanya membangun, tidak memasang. |
+| `--build-only` | Hanya membangun checkout saat ini, tidak memasang. |
 | `--clean` | Hapus hasil build sebelum membangun. |
 | `--no-deps` | Jangan pasang dependensi otomatis. |
 | `-y`, `--yes` | Jawab ya saat diminta memasang paket. |
-| `--uninstall` | Hapus biner, peluncur, dan launcher desktop. |
+| `--uninstall` | Hapus biner, peluncur, dan launcher desktop; simpanan dan sumber dipertahankan. |
 | `-h`, `--help` | Tampilkan bantuan. |
 
 Contoh:
@@ -88,21 +92,23 @@ Contoh:
 ```bash
 ./install.sh --build-only
 ./install.sh --dir ~/games/aetheria
+./install.sh --repo https://github.com/pengguna/AetheriaRPG.git
 ./install.sh --uninstall
 ```
 
 Jalankan game lewat menu aplikasi atau `~/.aetheria/aetheria`. Skrip uninstall
-tidak menghapus `savegame.dat`; folder game hanya dihapus bila sudah kosong.
-Instalasi lama di `~/.local/bin/rpgcpp` dibersihkan otomatis. Berkas simpanan
-lama yang berada di folder lain perlu dipindahkan manual ke
-`~/.aetheria/savegame.dat`.
+tidak menghapus `savegame.dat` maupun salinan sumber di `~/.aetheria/source`;
+folder game hanya dihapus bila sudah kosong. Instalasi lama di
+`~/.local/bin/rpgcpp` dibersihkan otomatis. Berkas simpanan lama yang berada di
+folder lain perlu dipindahkan manual ke `~/.aetheria/savegame.dat`.
 
 ## Perbarui Game dari Judul
 
 Layar judul memiliki empat pilihan: **Mulai Baru**, **Lanjutkan**,
 **Perbarui Game**, dan **Keluar**. Memilih **Perbarui Game** akan:
 
-1. Menjalankan `git pull --ff-only` pada checkout sumber.
+1. Menjalankan `git pull --ff-only` pada salinan sumber
+   `~/.aetheria/source`.
 2. Membangun ulang game dengan `make -jN`.
 3. Menguji biner baru dengan `--headless --frames 30`.
 4. Memasang biner baru ke lokasi instalasi bila game dijalankan dari luar
@@ -116,8 +122,10 @@ checkout sumber yang bersih; perubahan lokal yang belum di-commit akan
 menghentikan pembaruan. Jika build atau uji gagal, biner lama dipulihkan
 otomatis.
 
-`install.sh` menulis lokasi checkout ke `~/.aetheria/source` agar game yang
-terpasang dapat menemukan sumbernya. Untuk checkout di lokasi lain, set
+`install.sh` mengkloning repositori ke `~/.aetheria/source`, sehingga game yang
+terpasang dapat memperbarui dirinya tanpa bergantung pada folder proyek asal.
+Pemasangan ulang menjalankan `git pull --ff-only` lalu membangun dari salinan
+yang sama. Untuk checkout di lokasi lain, set
 `AETHERIA_REPO=/path/ke/sumber` sebelum menjalankan game. Pada mode `--headless`
 dan `--screenshot`, menu pembaruan tidak menjalankan perintah apa pun.
 
@@ -269,7 +277,7 @@ src/platform.h/.cpp jendela X11, input, presentasi piksel
 src/main.cpp        CLI, loop utama, headless, screenshot
 tests/test_main.cpp rangkaian tes regresi
 Makefile            target build, test, run, shots, clean
-install.sh          pemeriksaan dependensi, build, instalasi, uninstall
+install.sh          kloning sumber, build, instalasi, uninstall
 ```
 
 ## Pengujian
@@ -320,6 +328,8 @@ headless ok: frames=1200 state=1 map=0 hp=42 checksum=...
   `DISPLAY` yang benar, atau gunakan `--headless`.
 - **Gagal build karena `X11/Xlib.h` tidak ditemukan**: pasang `libx11-dev`
   atau jalankan `./install.sh` yang akan menawarkan pemasangan dependensi.
+- **`git clone` gagal saat instalasi**: periksa koneksi dan alamat repositori,
+  lalu jalankan `./install.sh --repo URL` untuk memakai fork atau cermin lokal.
 - **Jendela tidak menerima input**: klik jendela sekali untuk memberi fokus,
   lalu gunakan tombol arah dan `Z`/`Enter`.
 - **Tidak ada suara**: pastikan `libasound.so.2` dan perangkat audio tersedia,

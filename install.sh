@@ -2,15 +2,18 @@
 # install.sh - build dan pasang Aetheria: Bayangan Terakhir
 #
 # Skrip ini memeriksa dependensi build, menawarkan pemasangan paket yang
-# diperlukan, membangun game, lalu menyiapkan folder ~/.aetheria berisi biner,
-# peluncur, dan berkas simpanan. Launcher desktop dipasang terpisah.
-# Jalankan sebagai pengguna biasa; sudo hanya dipakai saat benar-benar perlu.
+# diperlukan, mengkloning sumber ke ~/.aetheria/source, membangun game dari
+# salinan itu, lalu memasang biner dan peluncur. Launcher desktop dipasang
+# terpisah. Jalankan sebagai pengguna biasa; sudo hanya dipakai saat perlu.
 set -Eeuo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 cd "$SCRIPT_DIR"
 
 GAME_DIR="${HOME}/.aetheria"
+REPO_URL="https://github.com/Hamzah82/AetheriaRPG.git"
+REPO_EXPLICIT=0
+BUILD_DIR=""
 JOBS=""
 ASSUME_YES=0
 INSTALL_DEPS=1
@@ -20,7 +23,6 @@ UNINSTALL=0
 CXX_BIN=""
 TMP_DESKTOP=""
 TMP_LAUNCHER=""
-TMP_SOURCE=""
 
 if [ -t 1 ]; then
     C_BOLD=$'\033[1m'
@@ -56,9 +58,6 @@ cleanup() {
     if [ -n "$TMP_LAUNCHER" ]; then
         rm -f "$TMP_LAUNCHER" || true
     fi
-    if [ -n "$TMP_SOURCE" ]; then
-        rm -f "$TMP_SOURCE" || true
-    fi
 }
 trap on_error ERR
 trap cleanup EXIT
@@ -69,11 +68,16 @@ Penggunaan: ./install.sh [opsi]
 
 Membangun dan memasang Aetheria: Bayangan Terakhir.
 
+Instalasi biasa mengkloning sumber dari GitHub ke folder game, lalu membangun
+game dari salinan itu. Pemasangan ulang memperbarui salinan tersebut dengan
+git pull --ff-only. Mode --build-only membangun checkout saat ini.
+
 Opsi:
   --dir DIR       folder data game (bawaan: ~/.aetheria)
   --prefix DIR    alias lama untuk --dir
+  --repo URL      repositori sumber (bawaan: https://github.com/Hamzah82/AetheriaRPG.git)
   --jobs N        jumlah pekerjaan build (bawaan: jumlah CPU)
-  --build-only    hanya membangun, tidak memasang
+  --build-only    hanya membangun checkout saat ini, tidak memasang
   --clean         hapus hasil build sebelum membangun
   --no-deps       jangan pasang dependensi otomatis
   -y, --yes       jawab ya saat diminta memasang paket
@@ -85,12 +89,14 @@ Bawaan instalasi:
   biner       : ~/.aetheria/rpgcpp
   peluncur    : ~/.aetheria/aetheria
   simpanan    : ~/.aetheria/savegame.dat
+  sumber      : ~/.aetheria/source (salinan Git)
   launcher    : ~/.local/share/applications/aetheria.desktop
 
 Contoh:
   ./install.sh
   ./install.sh --build-only
   ./install.sh --dir ~/games/aetheria
+  ./install.sh --repo https://github.com/pengguna/AetheriaRPG.git
   ./install.sh --uninstall
 EOF
 }
@@ -124,6 +130,17 @@ while [ $# -gt 0 ]; do
             ;;
         --dir=*|--prefix=*)
             GAME_DIR="${1#*=}"
+            shift
+            ;;
+        --repo)
+            [ $# -ge 2 ] || die "--repo membutuhkan alamat repositori"
+            REPO_URL="$2"
+            REPO_EXPLICIT=1
+            shift 2
+            ;;
+        --repo=*)
+            REPO_URL="${1#*=}"
+            REPO_EXPLICIT=1
             shift
             ;;
         --jobs)
@@ -164,10 +181,17 @@ done
 if [ "$UNINSTALL" -eq 1 ] && [ "$BUILD_ONLY" -eq 1 ]; then
     die "--uninstall dan --build-only tidak dapat dipakai bersamaan"
 fi
+[ -n "$REPO_URL" ] || die "--repo tidak boleh kosong"
+if [ "$REPO_EXPLICIT" -eq 1 ] && [ "$BUILD_ONLY" -eq 1 ]; then
+    warn "Opsi --repo diabaikan pada mode --build-only."
+fi
+if [ "$REPO_EXPLICIT" -eq 1 ] && [ "$UNINSTALL" -eq 1 ]; then
+    warn "Opsi --repo diabaikan pada mode --uninstall."
+fi
 
 GAME_DIR="$(expand_path "$GAME_DIR")"
 LAUNCHER="$GAME_DIR/aetheria"
-SOURCE_MARKER="$GAME_DIR/source"
+SOURCE_DIR="$GAME_DIR/source"
 APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 DESKTOP_FILE="$APPS_DIR/aetheria.desktop"
 
@@ -254,28 +278,28 @@ install_dependencies() {
         apt)
             info "Memperbarui indeks paket apt..."
             as_root apt-get update
-            info "Memasang build-essential dan libx11-dev..."
+            info "Memasang build-essential, libx11-dev, dan git..."
             as_root env DEBIAN_FRONTEND=noninteractive \
-                apt-get install -y build-essential libx11-dev
+                apt-get install -y build-essential libx11-dev git
             ;;
         dnf)
-            info "Memasang gcc-c++, make, dan libX11-devel..."
-            as_root dnf install -y gcc-c++ make libX11-devel
+            info "Memasang gcc-c++, make, libX11-devel, dan git..."
+            as_root dnf install -y gcc-c++ make libX11-devel git
             ;;
         pacman)
-            info "Memasang base-devel dan libx11..."
-            as_root pacman -S --needed --noconfirm base-devel libx11
+            info "Memasang base-devel, libx11, dan git..."
+            as_root pacman -S --needed --noconfirm base-devel libx11 git
             ;;
         zypper)
-            info "Memasang gcc-c++, make, dan libX11-devel..."
-            as_root zypper --non-interactive install gcc-c++ make libX11-devel
+            info "Memasang gcc-c++, make, libX11-devel, dan git..."
+            as_root zypper --non-interactive install gcc-c++ make libX11-devel git
             ;;
         apk)
-            info "Memasang build-base dan libx11-dev..."
-            as_root apk add --no-cache build-base libx11-dev
+            info "Memasang build-base, libx11-dev, dan git..."
+            as_root apk add --no-cache build-base libx11-dev git
             ;;
         *)
-            die "Manajer paket tidak dikenali. Pasang manual: compiler C++17, make, dan header X11."
+            die "Manajer paket tidak dikenali. Pasang manual: compiler C++17, make, git, dan header X11."
             ;;
     esac
 }
@@ -295,7 +319,7 @@ remove_legacy_install() {
         rm -f "$old_bin"
         ok "Biner lama dihapus: $old_bin"
     fi
-    if [ -e "$old_marker" ]; then
+    if [ -f "$old_marker" ]; then
         rm -f "$old_marker"
         rmdir "$HOME/.local/share/aetheria" 2>/dev/null || true
         ok "Catatan sumber lama dihapus: $old_marker"
@@ -306,16 +330,67 @@ remove_legacy_install() {
     fi
 }
 
+prepare_source() {
+    if [ -e "$GAME_DIR" ] && [ ! -d "$GAME_DIR" ]; then
+        die "$GAME_DIR sudah ada dan bukan sebuah folder."
+    fi
+    as_priv "$GAME_DIR" install -d -m 0755 "$GAME_DIR"
+
+    # Versi lama hanya menulis berkas penunjuk berisi lokasi checkout.
+    # Berkas itu diganti salinan Git sungguhan agar game bisa memperbarui diri.
+    if [ -f "$SOURCE_DIR" ]; then
+        info "Mengganti catatan sumber lama dengan salinan Git..."
+        as_priv "$GAME_DIR" rm -f "$SOURCE_DIR"
+        ok "Catatan sumber lama dihapus: $SOURCE_DIR"
+    elif [ -e "$SOURCE_DIR" ] && [ ! -d "$SOURCE_DIR" ]; then
+        die "$SOURCE_DIR ada dan bukan folder. Pindahkan atau hapus dulu."
+    fi
+
+    if [ -d "$SOURCE_DIR/.git" ]; then
+        info "Memperbarui salinan sumber di $SOURCE_DIR..."
+        if [ -n "$(git -C "$SOURCE_DIR" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
+            die "Salinan sumber punya perubahan lokal. Commit atau kembalikan dulu: $SOURCE_DIR"
+        fi
+        local current_url
+        current_url="$(git -C "$SOURCE_DIR" remote get-url origin 2>/dev/null || true)"
+        if [ -n "$current_url" ] && [ "$current_url" != "$REPO_URL" ]; then
+            info "Mengarahkan remote origin ke $REPO_URL..."
+            git -C "$SOURCE_DIR" remote set-url origin "$REPO_URL"
+        fi
+        if ! git -C "$SOURCE_DIR" pull --ff-only; then
+            die "Git pull gagal. Periksa koneksi, lalu coba lagi: $SOURCE_DIR"
+        fi
+        ok "Sumber diperbarui: $SOURCE_DIR"
+    elif [ -d "$SOURCE_DIR" ] && [ -n "$(ls -A "$SOURCE_DIR" 2>/dev/null)" ]; then
+        die "$SOURCE_DIR sudah berisi berkas lain. Kosongkan folder itu atau pakai --dir lain."
+    else
+        info "Mengkloning sumber dari $REPO_URL..."
+        if ! git clone -- "$REPO_URL" "$SOURCE_DIR"; then
+            die "Git clone gagal. Periksa alamat repositori dan koneksi."
+        fi
+        ok "Sumber dikloning: $SOURCE_DIR"
+    fi
+
+    BUILD_DIR="$SOURCE_DIR"
+}
+
 if [ "$UNINSTALL" -eq 1 ]; then
     info "Menghapus Aetheria dari $GAME_DIR..."
     removed=0
-    for file in "$GAME_DIR/rpgcpp" "$LAUNCHER" "$SOURCE_MARKER"; do
+    for file in "$GAME_DIR/rpgcpp" "$LAUNCHER"; do
         if [ -e "$file" ]; then
             as_priv "$GAME_DIR" rm -f "$file"
             ok "Dihapus: $file"
             removed=1
         fi
     done
+    # Catatan sumber lama berupa berkas penunjuk; salinan sumber berupa folder
+    # dan sengaja dipertahankan.
+    if [ -f "$SOURCE_DIR" ]; then
+        as_priv "$GAME_DIR" rm -f "$SOURCE_DIR"
+        ok "Catatan sumber lama dihapus: $SOURCE_DIR"
+        removed=1
+    fi
     if [ "$removed" -eq 0 ]; then
         warn "Tidak ada berkas Aetheria di $GAME_DIR"
     fi
@@ -327,13 +402,17 @@ if [ "$UNINSTALL" -eq 1 ]; then
         warn "Launcher tidak ditemukan: $DESKTOP_FILE"
     fi
     remove_legacy_install
+    if [ -d "$SOURCE_DIR" ]; then
+        ok "Salinan sumber dipertahankan: $SOURCE_DIR"
+    fi
+    if [ -e "$GAME_DIR/savegame.dat" ]; then
+        ok "Berkas simpanan dipertahankan: $GAME_DIR/savegame.dat"
+    fi
     if [ -d "$GAME_DIR" ]; then
         if rmdir "$GAME_DIR" 2>/dev/null; then
             ok "Folder game kosong dihapus: $GAME_DIR"
-        elif [ -e "$GAME_DIR/savegame.dat" ]; then
-            ok "Berkas simpanan dipertahankan: $GAME_DIR/savegame.dat"
         else
-            warn "Folder game tidak kosong dan dibiarkan: $GAME_DIR"
+            warn "Folder game dibiarkan: $GAME_DIR"
         fi
     fi
     ok "Instalasi dihapus. Hasil build tidak disentuh."
@@ -347,6 +426,9 @@ if [ -z "$CXX_BIN" ]; then
 fi
 if ! command -v make >/dev/null 2>&1; then
     missing+=("make")
+fi
+if [ "$BUILD_ONLY" -eq 0 ] && ! command -v git >/dev/null 2>&1; then
+    missing+=("git")
 fi
 if [ -n "$CXX_BIN" ] && ! has_x11_headers; then
     missing+=("header X11 (libX11)")
@@ -370,44 +452,47 @@ if [ ${#missing[@]} -gt 0 ]; then
     fi
     install_dependencies
     resolve_compiler
-    if [ -z "$CXX_BIN" ] || ! command -v make >/dev/null 2>&1 || ! has_x11_headers; then
+    if [ -z "$CXX_BIN" ] || ! command -v make >/dev/null 2>&1 || ! has_x11_headers ||
+        { [ "$BUILD_ONLY" -eq 0 ] && ! command -v git >/dev/null 2>&1; }; then
         die "Dependensi masih belum lengkap setelah pemasangan. Periksa keluaran di atas."
     fi
     ok "Dependensi siap."
 fi
 
-[ -f src/main.cpp ] || die "Berkas sumber tidak ditemukan. Jalankan skrip ini dari folder proyek."
-[ -f Makefile ] || die "Makefile tidak ditemukan. Jalankan skrip ini dari folder proyek."
+if [ "$BUILD_ONLY" -eq 1 ]; then
+    BUILD_DIR="$SCRIPT_DIR"
+else
+    prepare_source
+fi
+
+[ -f "$BUILD_DIR/src/main.cpp" ] || die "Berkas sumber tidak ditemukan di $BUILD_DIR."
+[ -f "$BUILD_DIR/Makefile" ] || die "Makefile tidak ditemukan di $BUILD_DIR."
 
 if [ "$CLEAN_BUILD" -eq 1 ]; then
     info "Membersihkan hasil build sebelumnya..."
-    make clean
+    make -C "$BUILD_DIR" clean
 fi
 
 info "Membangun Aetheria dengan $CXX_BIN -j$JOBS..."
-make -j"$JOBS" CXX="$CXX_BIN"
-[ -x rpgcpp ] || die "Build selesai, tetapi biner rpgcpp tidak ditemukan."
+make -C "$BUILD_DIR" -j"$JOBS" CXX="$CXX_BIN"
+[ -x "$BUILD_DIR/rpgcpp" ] || die "Build selesai, tetapi biner rpgcpp tidak ditemukan."
 
 info "Menjalankan uji asap headless..."
-if ! ./rpgcpp --headless --frames 60 >/dev/null 2>&1; then
-    die "Uji asap gagal. Coba ./rpgcpp --headless --frames 60 untuk melihat kesalahan."
+if ! "$BUILD_DIR/rpgcpp" --headless --frames 60 >/dev/null 2>&1; then
+    die "Uji asap gagal. Coba $BUILD_DIR/rpgcpp --headless --frames 60 untuk melihat kesalahan."
 fi
 ok "Build dan uji asap berhasil."
 
 if [ "$BUILD_ONLY" -eq 1 ]; then
-    ok "Mode build-only: biner tersedia di $SCRIPT_DIR/rpgcpp"
-    printf '  Jalankan: %s/rpgcpp\n' "$SCRIPT_DIR"
+    ok "Mode build-only: biner tersedia di $BUILD_DIR/rpgcpp"
+    printf '  Jalankan: %s\n' "$BUILD_DIR/rpgcpp"
     exit 0
 fi
 
 remove_legacy_install
 
-info "Menyiapkan folder game di $GAME_DIR..."
-if [ -e "$GAME_DIR" ] && [ ! -d "$GAME_DIR" ]; then
-    die "$GAME_DIR sudah ada dan bukan sebuah folder."
-fi
-as_priv "$GAME_DIR" install -d -m 0755 "$GAME_DIR"
-as_priv "$GAME_DIR" install -m 0755 rpgcpp "$GAME_DIR/rpgcpp"
+info "Memasang biner ke $GAME_DIR..."
+as_priv "$GAME_DIR" install -m 0755 "$BUILD_DIR/rpgcpp" "$GAME_DIR/rpgcpp"
 ok "Biner terpasang: $GAME_DIR/rpgcpp"
 
 info "Memasang peluncur $LAUNCHER..."
@@ -424,15 +509,6 @@ as_priv "$GAME_DIR" install -m 0755 "$tmp_launcher" "$LAUNCHER"
 rm -f "$tmp_launcher"
 TMP_LAUNCHER=""
 ok "Peluncur terpasang: $LAUNCHER"
-
-info "Mencatat lokasi sumber untuk menu Perbarui Game..."
-tmp_source="$(mktemp "${TMPDIR:-/tmp}/aetheria-source.XXXXXX")"
-TMP_SOURCE="$tmp_source"
-printf '%s\n' "$SCRIPT_DIR" >"$tmp_source"
-as_priv "$GAME_DIR" install -m 0644 "$tmp_source" "$SOURCE_MARKER"
-rm -f "$tmp_source"
-TMP_SOURCE=""
-ok "Sumber tercatat: $SOURCE_MARKER"
 
 info "Memasang launcher desktop ke $APPS_DIR..."
 tmp_desktop="$(mktemp "${TMPDIR:-/tmp}/aetheria-desktop.XXXXXX.desktop")"
@@ -475,4 +551,5 @@ printf '  Folder   : %s\n' "$GAME_DIR"
 printf '  Biner    : %s\n' "$GAME_DIR/rpgcpp"
 printf '  Jalankan : %s\n' "$LAUNCHER"
 printf '  Simpanan : %s/savegame.dat\n' "$GAME_DIR"
+printf '  Sumber   : %s\n' "$SOURCE_DIR"
 printf '  Launcher : %s\n' "$DESKTOP_FILE"

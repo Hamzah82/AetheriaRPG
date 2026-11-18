@@ -475,7 +475,7 @@ std::string defaultSavePath() {
     std::string dir = executableDirectory();
     if (!dir.empty()) {
         std::error_code ec;
-        if (fs::is_regular_file(fs::path(dir) / "source", ec)) {
+        if (fs::exists(fs::path(dir) / "source", ec)) {
             return (fs::path(dir) / "savegame.dat").string();
         }
     }
@@ -496,7 +496,7 @@ std::string findSourceCheckout() {
     if (!self.empty()) {
         fs::path exeDir = fs::path(self).parent_path();
         candidates.push_back(exeDir.string());
-        // New layout: install.sh keeps the marker beside the binary.
+        // Installed layout: install.sh clones the source beside the binary.
         candidates.push_back((exeDir / "source").string());
         // Older layout: $PREFIX/share/aetheria/source.
         candidates.push_back((exeDir.parent_path() / "share" / "aetheria" / "source").string());
