@@ -49,4 +49,12 @@ bool isSourceCheckout(const std::string& dir);
 // by install.sh. Returns an empty string when no checkout is found.
 std::string findSourceCheckout();
 
+// Directory containing the running executable, or empty when unknown.
+std::string executableDirectory();
+
+// Default save file. An installed copy (marked by a "source" file next to the
+// binary) keeps savegame.dat beside the binary; a source checkout keeps it in
+// the current directory.
+std::string defaultSavePath();
+
 }  // namespace rpg

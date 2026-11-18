@@ -24,7 +24,7 @@ struct Options {
     int scale = 3;
     int frames = 600;
     uint64_t seed = 20261118ull;
-    std::string savePath = "savegame.dat";
+    std::string savePath = defaultSavePath();
     std::string screenshotDir;
     bool headless = false;
     bool audio = true;

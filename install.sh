@@ -2,14 +2,15 @@
 # install.sh - build dan pasang Aetheria: Bayangan Terakhir
 #
 # Skrip ini memeriksa dependensi build, menawarkan pemasangan paket yang
-# diperlukan, membangun game, lalu memasang biner dan launcher desktop.
+# diperlukan, membangun game, lalu menyiapkan folder ~/.aetheria berisi biner,
+# peluncur, dan berkas simpanan. Launcher desktop dipasang terpisah.
 # Jalankan sebagai pengguna biasa; sudo hanya dipakai saat benar-benar perlu.
 set -Eeuo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 cd "$SCRIPT_DIR"
 
-PREFIX="${HOME}/.local"
+GAME_DIR="${HOME}/.aetheria"
 JOBS=""
 ASSUME_YES=0
 INSTALL_DEPS=1
@@ -18,6 +19,7 @@ CLEAN_BUILD=0
 UNINSTALL=0
 CXX_BIN=""
 TMP_DESKTOP=""
+TMP_LAUNCHER=""
 TMP_SOURCE=""
 
 if [ -t 1 ]; then
@@ -51,6 +53,9 @@ cleanup() {
     if [ -n "$TMP_DESKTOP" ]; then
         rm -f "$TMP_DESKTOP" || true
     fi
+    if [ -n "$TMP_LAUNCHER" ]; then
+        rm -f "$TMP_LAUNCHER" || true
+    fi
     if [ -n "$TMP_SOURCE" ]; then
         rm -f "$TMP_SOURCE" || true
     fi
@@ -65,23 +70,27 @@ Penggunaan: ./install.sh [opsi]
 Membangun dan memasang Aetheria: Bayangan Terakhir.
 
 Opsi:
-  --prefix DIR    direktori instalasi (bawaan: ~/.local)
+  --dir DIR       folder data game (bawaan: ~/.aetheria)
+  --prefix DIR    alias lama untuk --dir
   --jobs N        jumlah pekerjaan build (bawaan: jumlah CPU)
   --build-only    hanya membangun, tidak memasang
   --clean         hapus hasil build sebelum membangun
   --no-deps       jangan pasang dependensi otomatis
   -y, --yes       jawab ya saat diminta memasang paket
-  --uninstall     hapus biner dan launcher yang terpasang
+  --uninstall     hapus biner, peluncur, dan launcher desktop
   -h, --help      tampilkan bantuan ini
 
 Bawaan instalasi:
-  biner    : ~/.local/bin/rpgcpp
-  launcher : ~/.local/share/applications/aetheria.desktop
+  folder game : ~/.aetheria
+  biner       : ~/.aetheria/rpgcpp
+  peluncur    : ~/.aetheria/aetheria
+  simpanan    : ~/.aetheria/savegame.dat
+  launcher    : ~/.local/share/applications/aetheria.desktop
 
 Contoh:
   ./install.sh
   ./install.sh --build-only
-  ./install.sh --prefix /usr/local
+  ./install.sh --dir ~/games/aetheria
   ./install.sh --uninstall
 EOF
 }
@@ -108,13 +117,13 @@ while [ $# -gt 0 ]; do
             usage
             exit 0
             ;;
-        --prefix)
-            [ $# -ge 2 ] || die "--prefix membutuhkan sebuah direktori"
-            PREFIX="$2"
+        --dir|--prefix)
+            [ $# -ge 2 ] || die "$1 membutuhkan sebuah direktori"
+            GAME_DIR="$2"
             shift 2
             ;;
-        --prefix=*)
-            PREFIX="${1#*=}"
+        --dir=*|--prefix=*)
+            GAME_DIR="${1#*=}"
             shift
             ;;
         --jobs)
@@ -156,12 +165,11 @@ if [ "$UNINSTALL" -eq 1 ] && [ "$BUILD_ONLY" -eq 1 ]; then
     die "--uninstall dan --build-only tidak dapat dipakai bersamaan"
 fi
 
-PREFIX="$(expand_path "$PREFIX")"
-BIN_DIR="$PREFIX/bin"
-APPS_DIR="$PREFIX/share/applications"
+GAME_DIR="$(expand_path "$GAME_DIR")"
+LAUNCHER="$GAME_DIR/aetheria"
+SOURCE_MARKER="$GAME_DIR/source"
+APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 DESKTOP_FILE="$APPS_DIR/aetheria.desktop"
-SOURCE_DIR="$PREFIX/share/aetheria"
-SOURCE_MARKER="$SOURCE_DIR/source"
 
 if [ -z "$JOBS" ]; then
     JOBS="$(nproc 2>/dev/null || printf '2')"
@@ -279,13 +287,37 @@ update_desktop_database() {
     fi
 }
 
+remove_legacy_install() {
+    local old_bin="$HOME/.local/bin/rpgcpp"
+    local old_marker="$HOME/.local/share/aetheria/source"
+    local old_desktop="$HOME/.local/share/applications/aetheria.desktop"
+    if [ -e "$old_bin" ]; then
+        rm -f "$old_bin"
+        ok "Biner lama dihapus: $old_bin"
+    fi
+    if [ -e "$old_marker" ]; then
+        rm -f "$old_marker"
+        rmdir "$HOME/.local/share/aetheria" 2>/dev/null || true
+        ok "Catatan sumber lama dihapus: $old_marker"
+    fi
+    if [ "$old_desktop" != "$DESKTOP_FILE" ] && [ -e "$old_desktop" ]; then
+        rm -f "$old_desktop"
+        ok "Launcher lama dihapus: $old_desktop"
+    fi
+}
+
 if [ "$UNINSTALL" -eq 1 ]; then
-    info "Menghapus Aetheria dari $PREFIX..."
-    if [ -e "$BIN_DIR/rpgcpp" ]; then
-        as_priv "$BIN_DIR" rm -f "$BIN_DIR/rpgcpp"
-        ok "Biner dihapus: $BIN_DIR/rpgcpp"
-    else
-        warn "Biner tidak ditemukan: $BIN_DIR/rpgcpp"
+    info "Menghapus Aetheria dari $GAME_DIR..."
+    removed=0
+    for file in "$GAME_DIR/rpgcpp" "$LAUNCHER" "$SOURCE_MARKER"; do
+        if [ -e "$file" ]; then
+            as_priv "$GAME_DIR" rm -f "$file"
+            ok "Dihapus: $file"
+            removed=1
+        fi
+    done
+    if [ "$removed" -eq 0 ]; then
+        warn "Tidak ada berkas Aetheria di $GAME_DIR"
     fi
     if [ -e "$DESKTOP_FILE" ]; then
         as_priv "$DESKTOP_FILE" rm -f "$DESKTOP_FILE"
@@ -294,11 +326,17 @@ if [ "$UNINSTALL" -eq 1 ]; then
     else
         warn "Launcher tidak ditemukan: $DESKTOP_FILE"
     fi
-    if [ -e "$SOURCE_MARKER" ]; then
-        as_priv "$SOURCE_DIR" rm -f "$SOURCE_MARKER"
-        ok "Catatan sumber dihapus: $SOURCE_MARKER"
+    remove_legacy_install
+    if [ -d "$GAME_DIR" ]; then
+        if rmdir "$GAME_DIR" 2>/dev/null; then
+            ok "Folder game kosong dihapus: $GAME_DIR"
+        elif [ -e "$GAME_DIR/savegame.dat" ]; then
+            ok "Berkas simpanan dipertahankan: $GAME_DIR/savegame.dat"
+        else
+            warn "Folder game tidak kosong dan dibiarkan: $GAME_DIR"
+        fi
     fi
-    ok "Instalasi dihapus. Hasil build dan berkas simpanan tidak disentuh."
+    ok "Instalasi dihapus. Hasil build tidak disentuh."
     exit 0
 fi
 
@@ -362,17 +400,36 @@ if [ "$BUILD_ONLY" -eq 1 ]; then
     exit 0
 fi
 
-info "Memasang biner ke $BIN_DIR..."
-as_priv "$BIN_DIR" install -d "$BIN_DIR"
-as_priv "$BIN_DIR" install -m 0755 rpgcpp "$BIN_DIR/rpgcpp"
-ok "Biner terpasang: $BIN_DIR/rpgcpp"
+remove_legacy_install
+
+info "Menyiapkan folder game di $GAME_DIR..."
+if [ -e "$GAME_DIR" ] && [ ! -d "$GAME_DIR" ]; then
+    die "$GAME_DIR sudah ada dan bukan sebuah folder."
+fi
+as_priv "$GAME_DIR" install -d -m 0755 "$GAME_DIR"
+as_priv "$GAME_DIR" install -m 0755 rpgcpp "$GAME_DIR/rpgcpp"
+ok "Biner terpasang: $GAME_DIR/rpgcpp"
+
+info "Memasang peluncur $LAUNCHER..."
+tmp_launcher="$(mktemp "${TMPDIR:-/tmp}/aetheria-launcher.XXXXXX")"
+TMP_LAUNCHER="$tmp_launcher"
+cat >"$tmp_launcher" <<'LAUNCHER'
+#!/bin/sh
+# Jalankan Aetheria dari folder game agar savegame.dat tetap di sini.
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1
+cd "$DIR" || exit 1
+exec ./rpgcpp "$@"
+LAUNCHER
+as_priv "$GAME_DIR" install -m 0755 "$tmp_launcher" "$LAUNCHER"
+rm -f "$tmp_launcher"
+TMP_LAUNCHER=""
+ok "Peluncur terpasang: $LAUNCHER"
 
 info "Mencatat lokasi sumber untuk menu Perbarui Game..."
 tmp_source="$(mktemp "${TMPDIR:-/tmp}/aetheria-source.XXXXXX")"
 TMP_SOURCE="$tmp_source"
 printf '%s\n' "$SCRIPT_DIR" >"$tmp_source"
-as_priv "$SOURCE_DIR" install -d "$SOURCE_DIR"
-as_priv "$SOURCE_DIR" install -m 0644 "$tmp_source" "$SOURCE_MARKER"
+as_priv "$GAME_DIR" install -m 0644 "$tmp_source" "$SOURCE_MARKER"
 rm -f "$tmp_source"
 TMP_SOURCE=""
 ok "Sumber tercatat: $SOURCE_MARKER"
@@ -387,8 +444,9 @@ Version=1.0
 Name=Aetheria: Bayangan Terakhir
 GenericName=RPG 2D
 Comment=Petualangan RPG 2D prosedural berbahasa Indonesia
-Exec="$BIN_DIR/rpgcpp"
-TryExec=$BIN_DIR/rpgcpp
+Exec="$LAUNCHER"
+TryExec=$LAUNCHER
+Path=$GAME_DIR
 Icon=applications-games
 Terminal=false
 Categories=Game;RolePlaying;
@@ -406,24 +464,15 @@ TMP_DESKTOP=""
 update_desktop_database
 ok "Launcher terpasang: $DESKTOP_FILE"
 
-if ! "$BIN_DIR/rpgcpp" --headless --frames 30 >/dev/null 2>&1; then
-    warn "Biner terpasang, tetapi uji asap dari lokasi instalasi gagal."
+if ! "$LAUNCHER" --headless --frames 30 >/dev/null 2>&1; then
+    warn "Biner terpasang, tetapi uji asap dari folder game gagal."
 else
     ok "Uji asap biner terpasang berhasil."
 fi
 
 printf '\n%sAetheria siap dimainkan.%s\n' "$C_GREEN" "$C_RESET"
-printf '  Biner    : %s\n' "$BIN_DIR/rpgcpp"
+printf '  Folder   : %s\n' "$GAME_DIR"
+printf '  Biner    : %s\n' "$GAME_DIR/rpgcpp"
+printf '  Jalankan : %s\n' "$LAUNCHER"
+printf '  Simpanan : %s/savegame.dat\n' "$GAME_DIR"
 printf '  Launcher : %s\n' "$DESKTOP_FILE"
-case ":${PATH:-}:" in
-    *":$BIN_DIR:"*)
-        printf '  Jalankan : rpgcpp\n'
-        ;;
-    *)
-        printf '  Jalankan : %s\n' "$BIN_DIR/rpgcpp"
-        printf '\n  %s belum ada di PATH. Tambahkan baris berikut ke ~/.profile:%s\n' \
-            "$BIN_DIR" "$C_RESET"
-        printf '  export PATH="%s:$PATH"\n' "$BIN_DIR"
-        ;;
-esac
-printf '  Simpanan : savegame.dat di direktori kerja (opsional: --save PATH)\n'

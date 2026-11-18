@@ -1094,6 +1094,7 @@ void testUpdater() {
         src << "int main() { return 0; }\n";
     }
 
+    CHECK(!executableDirectory().empty());
     CHECK(!isSourceCheckout(""));
     CHECK(!isSourceCheckout(root));
     fs::create_directories(root + "/.git", ec);

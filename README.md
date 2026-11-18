@@ -56,32 +56,46 @@ Skrip akan:
 2. Menawarkan pemasangan paket yang kurang melalui manajer paket distro
    (`apt`, `dnf`, `pacman`, `zypper`, atau `apk`).
 3. Membangun game dan menjalankan uji asap `--headless`.
-4. Memasang biner ke `~/.local/bin/rpgcpp` serta launcher ke
+4. Menyiapkan folder `~/.aetheria` dan memasang launcher desktop ke
    `~/.local/share/applications/aetheria.desktop`.
+
+Semua kebutuhan game disatukan dalam satu folder:
+
+```text
+~/.aetheria/
+  rpgcpp        biner game
+  aetheria      peluncur; menjalankan game dari folder ini
+  savegame.dat  dibuat saat pertama kali menyimpan
+  source        catatan checkout sumber untuk menu Perbarui Game
+```
 
 Opsi yang tersedia:
 
 | Opsi | Fungsi |
 | --- | --- |
-| `--prefix DIR` | Direktori instalasi (bawaan `~/.local`). |
+| `--dir DIR` | Folder data game (bawaan `~/.aetheria`). |
+| `--prefix DIR` | Alias lama untuk `--dir`. |
 | `--jobs N` | Jumlah pekerjaan build (bawaan jumlah CPU). |
 | `--build-only` | Hanya membangun, tidak memasang. |
 | `--clean` | Hapus hasil build sebelum membangun. |
 | `--no-deps` | Jangan pasang dependensi otomatis. |
 | `-y`, `--yes` | Jawab ya saat diminta memasang paket. |
-| `--uninstall` | Hapus biner dan launcher yang terpasang. |
+| `--uninstall` | Hapus biner, peluncur, dan launcher desktop. |
 | `-h`, `--help` | Tampilkan bantuan. |
 
 Contoh:
 
 ```bash
 ./install.sh --build-only
-./install.sh --prefix /usr/local   # instalasi sistem-wide
+./install.sh --dir ~/games/aetheria
 ./install.sh --uninstall
 ```
 
-Skrip tidak menghapus berkas simpanan. Jika `~/.local/bin` belum ada di `PATH`,
-skrip akan menampilkan baris yang perlu ditambahkan ke `~/.profile`.
+Jalankan game lewat menu aplikasi atau `~/.aetheria/aetheria`. Skrip uninstall
+tidak menghapus `savegame.dat`; folder game hanya dihapus bila sudah kosong.
+Instalasi lama di `~/.local/bin/rpgcpp` dibersihkan otomatis. Berkas simpanan
+lama yang berada di folder lain perlu dipindahkan manual ke
+`~/.aetheria/savegame.dat`.
 
 ## Perbarui Game dari Judul
 
@@ -92,7 +106,7 @@ Layar judul memiliki empat pilihan: **Mulai Baru**, **Lanjutkan**,
 2. Membangun ulang game dengan `make -jN`.
 3. Menguji biner baru dengan `--headless --frames 30`.
 4. Memasang biner baru ke lokasi instalasi bila game dijalankan dari luar
-   checkout (misalnya `~/.local/bin/rpgcpp`).
+   checkout (misalnya `~/.aetheria/rpgcpp`).
 5. Menampilkan **Mulai Ulang** setelah berhasil; tekan `Z` untuk menjalankan
    versi baru.
 
@@ -102,11 +116,10 @@ checkout sumber yang bersih; perubahan lokal yang belum di-commit akan
 menghentikan pembaruan. Jika build atau uji gagal, biner lama dipulihkan
 otomatis.
 
-`install.sh` menulis lokasi checkout ke `~/.local/share/aetheria/source` agar
-game yang terpasang dapat menemukan sumbernya. Untuk checkout di lokasi lain,
-set `AETHERIA_REPO=/path/ke/sumber` sebelum menjalankan game. Pada mode
-`--headless` dan `--screenshot`, menu pembaruan tidak menjalankan perintah apa
-pun.
+`install.sh` menulis lokasi checkout ke `~/.aetheria/source` agar game yang
+terpasang dapat menemukan sumbernya. Untuk checkout di lokasi lain, set
+`AETHERIA_REPO=/path/ke/sumber` sebelum menjalankan game. Pada mode `--headless`
+dan `--screenshot`, menu pembaruan tidak menjalankan perintah apa pun.
 
 ## Build dan Menjalankan
 
@@ -201,7 +214,10 @@ sinus, gergaji, dan noise; tidak ada berkas musik atau suara yang dimuat.
 ## Simpan dan Muat
 
 - Menu utama saat menjelajah memiliki pilihan **Simpan**.
-- Berkas simpanan bawaan adalah `savegame.dat` di direktori kerja saat ini.
+- Pada instalasi, berkas simpanan berada di `~/.aetheria/savegame.dat`, di
+  sebelah biner game.
+- Saat dijalankan langsung dari checkout sumber, `savegame.dat` berada di
+  direktori kerja.
 - Pilihan **Lanjutkan** pada layar judul akan memuat berkas tersebut.
 - Lokasi berkas dapat diubah dengan `--save PATH`.
 - Format simpanan berupa teks dan ditulis secara atomik melalui berkas sementara.

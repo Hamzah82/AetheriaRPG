@@ -465,6 +465,23 @@ bool isSourceCheckout(const std::string& dir) {
            fs::exists(root / ".git", ec);
 }
 
+std::string executableDirectory() {
+    std::string self = currentExecutablePath();
+    if (self.empty()) return {};
+    return fs::path(self).parent_path().string();
+}
+
+std::string defaultSavePath() {
+    std::string dir = executableDirectory();
+    if (!dir.empty()) {
+        std::error_code ec;
+        if (fs::is_regular_file(fs::path(dir) / "source", ec)) {
+            return (fs::path(dir) / "savegame.dat").string();
+        }
+    }
+    return "savegame.dat";
+}
+
 std::string findSourceCheckout() {
     std::vector<std::string> candidates;
     if (const char* env = std::getenv("AETHERIA_REPO"); env && *env) {
@@ -479,6 +496,9 @@ std::string findSourceCheckout() {
     if (!self.empty()) {
         fs::path exeDir = fs::path(self).parent_path();
         candidates.push_back(exeDir.string());
+        // New layout: install.sh keeps the marker beside the binary.
+        candidates.push_back((exeDir / "source").string());
+        // Older layout: $PREFIX/share/aetheria/source.
         candidates.push_back((exeDir.parent_path() / "share" / "aetheria" / "source").string());
     }
 
