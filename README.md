@@ -20,6 +20,8 @@ kembali Batu Matahari dari Warden Bayangan.
 - Boss Warden Bayangan dengan pertarungan khusus, dialog, dan ending.
 - Renderer software 320×240 yang diperbesar ke jendela X11 (bawaan 3× menjadi
   960×720), sehingga tampilan tetap tajam dan ringan.
+- Mode layar penuh dengan penskalaan integer dan bilah hitam; tekan `F11` atau
+  `Alt+Enter` untuk beralih.
 - Mode `--headless` dan `--screenshot` untuk pengujian tanpa jendela.
 
 ## Kebutuhan
@@ -153,6 +155,7 @@ make clean               # hapus hasil build
 | `Z` / `Enter` / `Spasi` | Konfirmasi, bicara, buka peti, pilih menu |
 | `X` / `Esc` / `Backspace` | Batal, kembali, tutup menu |
 | `E` / `Tab` | Buka menu utama saat menjelajah |
+| `F11` / `Alt+Enter` | Beralih mode layar penuh |
 
 Saat dialog, tombol konfirmasi atau batal akan mempercepat teks lalu melanjutkan
 ke halaman berikutnya. Di dalam pertarungan, gunakan tombol arah untuk memilih
@@ -241,6 +244,7 @@ sinus, gergaji, dan noise; tidak ada berkas musik atau suara yang dimuat.
   --headless       uji jalan tanpa jendela
   --frames N       jumlah frame uji headless
   --no-audio       jalankan tanpa musik dan efek suara
+  --fullscreen     mulai dalam mode layar penuh
   --screenshot DIR tulis tangkapan layar lalu keluar
   --help, -h       tampilkan bantuan
 ```
@@ -312,6 +316,9 @@ headless ok: frames=1200 state=1 map=0 hp=42 checksum=...
   nearest-neighbour agar piksel tetap tegas.
 - Warna piksel dipetakan ke mask merah/hijau/biru milik visual X11, sehingga
   tampilan benar pada layout RGB maupun BGR (termasuk kanal 10-bit).
+- Layar penuh memakai `_NET_WM_STATE_FULLSCREEN`. Framebuffer diperbesar dengan
+  skala integer terbesar yang muat lalu dipusatkan; sisa ruang menjadi bilah
+  hitam sehingga rasio 4:3 tidak berubah dan piksel tetap tegas.
 - Logika permainan tidak bergantung pada X11, sehingga dapat diuji secara
   headless dan deterministik dengan benih acak tetap.
 - Font 5×7 dan seluruh sprite digambar langsung ke framebuffer, tanpa memuat

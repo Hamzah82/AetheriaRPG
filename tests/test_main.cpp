@@ -1498,6 +1498,49 @@ void testDisplayPixels() {
     ColorChannel fallback = colorChannelFromMask(0);
     CHECK_EQ(fallback.shift, 0);
     CHECK_EQ(fallback.bits, 8);
+
+    // Windowed and fullscreen placement keeps integer scaling and centres the
+    // 4:3 image, leaving black bars on the remaining space.
+    Viewport windowed = fitViewport(960, 720);
+    CHECK_EQ(windowed.scale, 3);
+    CHECK_EQ(windowed.width, 960);
+    CHECK_EQ(windowed.height, 720);
+    CHECK_EQ(windowed.x, 0);
+    CHECK_EQ(windowed.y, 0);
+
+    Viewport fullHd = fitViewport(1920, 1080);
+    CHECK_EQ(fullHd.scale, 4);
+    CHECK_EQ(fullHd.width, 1280);
+    CHECK_EQ(fullHd.height, 960);
+    CHECK_EQ(fullHd.x, 320);
+    CHECK_EQ(fullHd.y, 60);
+
+    Viewport odd = fitViewport(1000, 700);
+    CHECK_EQ(odd.scale, 2);
+    CHECK_EQ(odd.width, 640);
+    CHECK_EQ(odd.height, 480);
+    CHECK_EQ(odd.x, 180);
+    CHECK_EQ(odd.y, 110);
+
+    // 4K is capped at 6x to keep the software scaler affordable.
+    Viewport uhd = fitViewport(3840, 2160);
+    CHECK_EQ(uhd.scale, 6);
+    CHECK_EQ(uhd.width, 1920);
+    CHECK_EQ(uhd.height, 1440);
+    CHECK_EQ(uhd.x, 960);
+    CHECK_EQ(uhd.y, 360);
+
+    // A window smaller than the framebuffer is clipped instead of overflowing.
+    Viewport tiny = fitViewport(200, 100);
+    CHECK_EQ(tiny.scale, 1);
+    CHECK_EQ(tiny.width, 200);
+    CHECK_EQ(tiny.height, 100);
+    CHECK_EQ(tiny.x, 0);
+    CHECK_EQ(tiny.y, 0);
+
+    Viewport empty = fitViewport(0, 0);
+    CHECK_EQ(empty.width, 0);
+    CHECK_EQ(empty.height, 0);
 }
 
 }  // namespace

@@ -28,6 +28,7 @@ struct Options {
     std::string screenshotDir;
     bool headless = false;
     bool audio = true;
+    bool fullscreen = false;
     bool showHelp = false;
 };
 
@@ -54,6 +55,8 @@ Options parseArgs(int argc, char** argv) {
             o.headless = true;
         } else if (a == "--no-audio") {
             o.audio = false;
+        } else if (a == "--fullscreen") {
+            o.fullscreen = true;
         } else if (a == "--help" || a == "-h") {
             o.showHelp = true;
         }
@@ -242,6 +245,7 @@ int main(int argc, char** argv) {
             "  --headless       uji jalan tanpa jendela\n"
             "  --frames N       jumlah frame uji headless\n"
             "  --no-audio       jalankan tanpa musik dan efek suara\n"
+            "  --fullscreen     mulai dalam mode layar penuh\n"
             "  --screenshot DIR tulis tangkapan layar lalu keluar\n");
         return 0;
     }
@@ -253,7 +257,7 @@ int main(int argc, char** argv) {
 
     Platform platform;
     std::string err;
-    if (!platform.open(opt.scale, "Aetheria: Bayangan Terakhir", &err)) {
+    if (!platform.open(opt.scale, "Aetheria: Bayangan Terakhir", &err, opt.fullscreen)) {
         std::fprintf(stderr, "%s\n", err.c_str());
         return 1;
     }

@@ -1,5 +1,6 @@
 // platform.h - native window and input (X11)
 #pragma once
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -8,6 +9,30 @@
 #include "gfx.h"
 
 namespace rpg {
+
+// Placement of the 320x240 framebuffer inside a window. Fullscreen letterboxes
+// or pillarboxes with the largest integer scale that fits, so pixels stay sharp.
+struct Viewport {
+    int scale = 1;
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+};
+
+inline Viewport fitViewport(int windowWidth, int windowHeight) {
+    Viewport v;
+    if (windowWidth <= 0 || windowHeight <= 0) return v;
+    int fit = std::min(windowWidth / VIEW_W, windowHeight / VIEW_H);
+    if (fit < 1) fit = 1;
+    if (fit > 6) fit = 6;  // match --scale's limit and bound 4K frame costs
+    v.scale = fit;
+    v.width = std::min(VIEW_W * fit, windowWidth);
+    v.height = std::min(VIEW_H * fit, windowHeight);
+    v.x = (windowWidth - v.width) / 2;
+    v.y = (windowHeight - v.height) / 2;
+    return v;
+}
 
 // Mapping of one display channel (for example red) inside a native pixel.
 struct ColorChannel {
@@ -55,7 +80,8 @@ public:
     Platform();
     ~Platform();
 
-    bool open(int scale, const std::string& title, std::string* err);
+    bool open(int scale, const std::string& title, std::string* err,
+              bool fullscreen = false);
     void close();
     bool pump(InputState& in);
     void present(const Framebuffer& fb);
@@ -63,6 +89,7 @@ public:
     int renderWidth() const;
     int renderHeight() const;
     bool isOpen() const;
+    bool isFullscreen() const;
 
 private:
     struct Impl;
