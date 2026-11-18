@@ -41,6 +41,48 @@ Tidak diperlukan pustaka grafis lain. Header ALSA **tidak** dibutuhkan karena
 `libasound.so.2` dimuat saat runtime; cukup paket runtime `libasound2` yang
 biasanya sudah terpasang.
 
+## Instalasi Cepat
+
+Cara termudah untuk memeriksa dependensi, membangun, dan memasang game:
+
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+Skrip akan:
+
+1. Memeriksa compiler C++17, `make`, dan header X11.
+2. Menawarkan pemasangan paket yang kurang melalui manajer paket distro
+   (`apt`, `dnf`, `pacman`, `zypper`, atau `apk`).
+3. Membangun game dan menjalankan uji asap `--headless`.
+4. Memasang biner ke `~/.local/bin/rpgcpp` serta launcher ke
+   `~/.local/share/applications/aetheria.desktop`.
+
+Opsi yang tersedia:
+
+| Opsi | Fungsi |
+| --- | --- |
+| `--prefix DIR` | Direktori instalasi (bawaan `~/.local`). |
+| `--jobs N` | Jumlah pekerjaan build (bawaan jumlah CPU). |
+| `--build-only` | Hanya membangun, tidak memasang. |
+| `--clean` | Hapus hasil build sebelum membangun. |
+| `--no-deps` | Jangan pasang dependensi otomatis. |
+| `-y`, `--yes` | Jawab ya saat diminta memasang paket. |
+| `--uninstall` | Hapus biner dan launcher yang terpasang. |
+| `-h`, `--help` | Tampilkan bantuan. |
+
+Contoh:
+
+```bash
+./install.sh --build-only
+./install.sh --prefix /usr/local   # instalasi sistem-wide
+./install.sh --uninstall
+```
+
+Skrip tidak menghapus berkas simpanan. Jika `~/.local/bin` belum ada di `PATH`,
+skrip akan menampilkan baris yang perlu ditambahkan ke `~/.profile`.
+
 ## Build dan Menjalankan
 
 ```bash
@@ -185,6 +227,7 @@ src/platform.h/.cpp jendela X11, input, presentasi piksel
 src/main.cpp        CLI, loop utama, headless, screenshot
 tests/test_main.cpp rangkaian tes regresi
 Makefile            target build, test, run, shots, clean
+install.sh          pemeriksaan dependensi, build, instalasi, uninstall
 ```
 
 ## Pengujian
@@ -233,7 +276,8 @@ headless ok: frames=1200 state=1 map=0 hp=42 checksum=...
 
 - **`Tidak bisa membuka display X11`**: jalankan dari sesi grafis dengan
   `DISPLAY` yang benar, atau gunakan `--headless`.
-- **Gagal build karena `X11/Xlib.h` tidak ditemukan**: pasang `libx11-dev`.
+- **Gagal build karena `X11/Xlib.h` tidak ditemukan**: pasang `libx11-dev`
+  atau jalankan `./install.sh` yang akan menawarkan pemasangan dependensi.
 - **Jendela tidak menerima input**: klik jendela sekali untuk memberi fokus,
   lalu gunakan tombol arah dan `Z`/`Enter`.
 - **Tidak ada suara**: pastikan `libasound.so.2` dan perangkat audio tersedia,
