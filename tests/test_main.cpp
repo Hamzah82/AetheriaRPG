@@ -1095,6 +1095,26 @@ void testUpdater() {
     }
 
     CHECK(!executableDirectory().empty());
+
+    // An installed copy keeps its save beside the binary, whether `source` is
+    // a checkout directory (current layout) or a pointer file (older layout).
+    const std::string exeDir = executableDirectory();
+    const std::string sourceEntry = exeDir + "/source";
+    const std::string expectedSave = exeDir + "/savegame.dat";
+    fs::remove_all(sourceEntry, ec);
+    fs::create_directories(sourceEntry, ec);
+    CHECK(fs::is_directory(sourceEntry, ec));
+    CHECK(defaultSavePath() == expectedSave);
+    fs::remove_all(sourceEntry, ec);
+    {
+        std::ofstream marker(sourceEntry);
+        marker << "/tmp/somewhere\n";
+    }
+    CHECK(fs::is_regular_file(sourceEntry, ec));
+    CHECK(defaultSavePath() == expectedSave);
+    fs::remove(sourceEntry, ec);
+    CHECK(defaultSavePath() == "savegame.dat");
+
     CHECK(!isSourceCheckout(""));
     CHECK(!isSourceCheckout(root));
     fs::create_directories(root + "/.git", ec);
