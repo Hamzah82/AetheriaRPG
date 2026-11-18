@@ -109,7 +109,7 @@ Layar judul memiliki empat pilihan: **Mulai Baru**, **Lanjutkan**,
 
 1. Menjalankan `git pull --ff-only` pada salinan sumber
    `~/.aetheria/source`.
-2. Membangun ulang game dengan `make -jN`.
+2. Membangun ulang game dengan `make -jN` memakai compiler yang tersedia.
 3. Menguji biner baru dengan `--headless --frames 30`.
 4. Memasang biner baru ke lokasi instalasi bila game dijalankan dari luar
    checkout (misalnya `~/.aetheria/rpgcpp`).

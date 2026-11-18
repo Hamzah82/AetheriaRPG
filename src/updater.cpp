@@ -294,10 +294,28 @@ struct Updater::Impl {
         unsigned jobs = std::thread::hardware_concurrency();
         if (jobs == 0) jobs = 2;
         jobs = std::min(jobs, 8u);
+
+        // Match install.sh: honour CXX, otherwise pick whichever supported
+        // compiler is actually available instead of assuming g++.
+        std::string compiler;
+        if (const char* env = std::getenv("CXX"); env && *env) {
+            compiler = env;
+        } else if (!findExecutablePath("g++").empty()) {
+            compiler = "g++";
+        } else if (!findExecutablePath("clang++").empty()) {
+            compiler = "clang++";
+        }
+        std::vector<std::string> makeArgs{"make", "-j" + std::to_string(jobs)};
+        std::string makeLabel = "$ make -j" + std::to_string(jobs);
+        if (!compiler.empty()) {
+            makeArgs.push_back("CXX=" + compiler);
+            makeLabel += " CXX=" + compiler;
+        }
+
         setPhase("Membangun ulang game...");
         captured.clear();
-        rc = runCommand(repo, {"make", "-j" + std::to_string(jobs)}, &captured);
-        append("\n$ make -j" + std::to_string(jobs) + "\n" + captured);
+        rc = runCommand(repo, makeArgs, &captured);
+        append("\n" + makeLabel + "\n" + captured);
         if (rc != 0) {
             restore();
             complete(false, "Build gagal. Biner lama dipulihkan.",
