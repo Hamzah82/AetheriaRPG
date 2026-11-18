@@ -239,6 +239,7 @@ SaveInfo inspectSave(const std::string& path) {
     if (!f) return info;
 
     std::string raw((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    f.close();
     std::string text;
     if (!decodeSaveText(raw, &text)) return info;
 

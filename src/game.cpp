@@ -302,6 +302,7 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return fail("Tidak ada berkas simpanan.");
     std::string raw((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    f.close();
     bool legacy = !isEncodedSaveText(raw);
     std::string text;
     if (!decodeSaveText(raw, &text))
