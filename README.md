@@ -349,8 +349,12 @@ sinus, gergaji, dan noise; tidak ada berkas musik atau suara yang dimuat.
   direktori kerja.
 - Lokasi dasar berkas dapat diubah dengan `--save PATH`; slot mengikuti awalan
   yang sama.
-- Format simpanan berupa teks dan ditulis secara atomik melalui berkas sementara.
-  Berkas versi lama (versi 1) tetap dapat dimuat.
+- Berkas simpanan dikodekan dan dilengkapi checksum sebelum ditulis, lalu
+  diganti secara atomik melalui berkas sementara. Suntingan manual pada berkas
+  akan ditolak saat dimuat. Ini adalah penyamaran data untuk mencegah kecurangan
+  sehari-hari, bukan enkripsi kuat, dan simpanan baru tidak dapat dibuka oleh
+  build lama. Simpanan lama dalam teks polos (versi 1 dan 2) tetap dapat dimuat
+  dan akan ditulis ulang dalam format terkode pada penyimpanan berikutnya.
 - Pengaturan audio dan layar penuh disimpan terpisah di `settings.cfg`, sehingga
   tidak ikut berubah saat memuat slot lain atau memulai permainan baru. Gunakan
   `--settings PATH` untuk memilih lokasi lain.

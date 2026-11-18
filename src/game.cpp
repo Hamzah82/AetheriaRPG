@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <sstream>
@@ -240,12 +241,6 @@ bool Game::saveGame(std::string* err) { return writeSaveTo(savePath_, err); }
 
 bool Game::writeSaveTo(const std::string& path, std::string* err) {
     if (err) err->clear();
-    std::string tmp = path + ".tmp";
-    std::ofstream f(tmp, std::ios::trunc);
-    if (!f) {
-        if (err) *err = "Tidak bisa menulis berkas simpanan.";
-        return false;
-    }
     int flagBits = 0;
     if (flags_.questAccepted) flagBits |= 1;
     if (flags_.bossDefeated) flagBits |= 2;
@@ -262,33 +257,45 @@ bool Game::writeSaveTo(const std::string& path, std::string* err) {
     for (size_t i = 0; i < visited_.size() && i < 31; ++i)
         if (visited_[i]) visitedMask |= (1 << i);
 
-    f << "version 2\n";
-    f << "map " << map_ << "\n";
-    f << "x " << px_ << "\n";
-    f << "y " << py_ << "\n";
-    f << "facing " << facing_ << "\n";
-    f << "level " << player_.level << "\n";
-    f << "xp " << player_.xp << "\n";
-    f << "gold " << player_.gold << "\n";
-    f << "hp " << player_.hp << "\n";
-    f << "mp " << player_.mp << "\n";
-    f << "weapon " << player_.weapon << "\n";
-    f << "armor " << player_.armor << "\n";
-    f << "potions " << player_.potions << "\n";
-    f << "elixirs " << player_.elixirs << "\n";
-    f << "sunstone " << (player_.hasSunstone ? 1 : 0) << "\n";
-    f << "flags " << flagBits << "\n";
-    f << "quests " << questBits << "\n";
-    f << "visited " << visitedMask << "\n";
-    f << "chests";
+    std::ostringstream out;
+    out << "version 2\n";
+    out << "map " << map_ << "\n";
+    out << "x " << px_ << "\n";
+    out << "y " << py_ << "\n";
+    out << "facing " << facing_ << "\n";
+    out << "level " << player_.level << "\n";
+    out << "xp " << player_.xp << "\n";
+    out << "gold " << player_.gold << "\n";
+    out << "hp " << player_.hp << "\n";
+    out << "mp " << player_.mp << "\n";
+    out << "weapon " << player_.weapon << "\n";
+    out << "armor " << player_.armor << "\n";
+    out << "potions " << player_.potions << "\n";
+    out << "elixirs " << player_.elixirs << "\n";
+    out << "sunstone " << (player_.hasSunstone ? 1 : 0) << "\n";
+    out << "flags " << flagBits << "\n";
+    out << "quests " << questBits << "\n";
+    out << "visited " << visitedMask << "\n";
+    out << "chests";
     for (int i = 0; i < world_.count(); ++i) {
         int mask = 0;
         const auto& opened = chestOpened_[static_cast<size_t>(i)];
         for (size_t k = 0; k < opened.size() && k < 31; ++k)
             if (opened[k]) mask |= (1 << k);
-        f << " " << mask;
+        out << " " << mask;
     }
-    f << "\n";
+    out << "\n";
+
+    // Encode before writing so the file is not directly editable, and write
+    // through a temporary file so a crash cannot leave a half-written save.
+    std::string encoded = encodeSaveText(out.str());
+    std::string tmp = path + ".tmp";
+    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+    if (!f) {
+        if (err) *err = "Tidak bisa menulis berkas simpanan.";
+        return false;
+    }
+    f.write(encoded.data(), static_cast<std::streamsize>(encoded.size()));
     if (!f) {
         if (err) *err = "Gagal menulis data simpanan.";
         f.close();
@@ -316,12 +323,18 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
         if (err) *err = msg;
         return false;
     };
-    std::ifstream f(path);
+    std::ifstream f(path, std::ios::binary);
     if (!f) return fail("Tidak ada berkas simpanan.");
+    std::string raw((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    std::string text;
+    if (!decodeSaveText(raw, &text))
+        return fail("Berkas simpanan rusak atau telah dimodifikasi.");
 
     std::map<std::string, std::string> kv;
+    std::istringstream in(text);
     std::string line;
-    while (std::getline(f, line)) {
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
         if (line.empty()) continue;
         size_t sp = line.find(' ');
         if (sp == std::string::npos) continue;

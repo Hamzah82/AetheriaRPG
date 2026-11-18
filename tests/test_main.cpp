@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <queue>
 #include <set>
 #include <string>
@@ -626,6 +627,82 @@ void testSaveSlots() {
         bad << "version 99\nmap 0\n";
     }
     CHECK(g.slotSummary(2) == "Berkas rusak");
+
+    removeSaveFiles(base);
+}
+
+// ---------------------------------------------------------------- save encoding
+
+void testSaveEncoding() {
+    std::string base = tmpPath("rpgcpp_encoded.dat");
+    Game g(31, base);
+    startExplore(g);
+    g.player().gold = 777;
+    std::string err;
+    CHECK(g.saveGame(&err));
+    CHECK(err.empty());
+
+    auto readFile = [](const std::string& path) {
+        std::ifstream f(path, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(f)),
+                           std::istreambuf_iterator<char>());
+    };
+
+    std::string raw = readFile(base);
+    CHECK(raw.rfind("AETHSAVE1", 0) == 0);
+    CHECK(raw.find("gold") == std::string::npos);
+    CHECK(raw.find("version") == std::string::npos);
+
+    SaveInfo info = inspectSave(base);
+    CHECK(info.exists);
+    CHECK(info.valid);
+    CHECK_EQ(info.version, 2);
+    CHECK_EQ(info.gold, 777);
+    CHECK(anySaveExists(base));
+
+    Game h(32, base);
+    CHECK(h.loadGame(&err));
+    CHECK(err.empty());
+    CHECK_EQ(h.player().gold, 777);
+
+    // Any edit invalidates the checksum instead of loading altered values.
+    std::string tampered = raw;
+    size_t pos = tampered.size() / 2;
+    tampered[pos] = static_cast<char>(tampered[pos] ^ 1);
+    {
+        std::ofstream f(base, std::ios::binary | std::ios::trunc);
+        f.write(tampered.data(), static_cast<std::streamsize>(tampered.size()));
+    }
+    CHECK(!inspectSave(base).valid);
+    CHECK(!h.loadGame(&err));
+    CHECK(!err.empty());
+
+    // Legacy plaintext saves still load and are upgraded on the next save.
+    {
+        std::ofstream old(base, std::ios::binary | std::ios::trunc);
+        old << "version 2\nmap 0\nx 224\ny 288\nlevel 3\ngold 42\n";
+    }
+    Game legacy(33, base);
+    CHECK(legacy.loadGame(&err));
+    CHECK_EQ(legacy.player().gold, 42);
+    legacy.player().gold = 43;
+    CHECK(legacy.saveGame(&err));
+    raw = readFile(base);
+    CHECK(raw.rfind("AETHSAVE1", 0) == 0);
+    Game upgraded(34, base);
+    CHECK(upgraded.loadGame(&err));
+    CHECK_EQ(upgraded.player().gold, 43);
+
+    // Direct round-trip and rejection of malformed containers.
+    std::string plain = "version 2\nmap 0\n";
+    std::string encoded = encodeSaveText(plain);
+    std::string decoded;
+    CHECK(encoded != plain);
+    CHECK(decodeSaveText(encoded, &decoded));
+    CHECK(decoded == plain);
+    CHECK(decodeSaveText(plain, &decoded));
+    CHECK(decoded == plain);
+    CHECK(!decodeSaveText("AETHSAVE1\n!!!", &decoded));
 
     removeSaveFiles(base);
 }
@@ -2124,6 +2201,7 @@ int main() {
     testWorld();
     testSaveLoad();
     testSaveSlots();
+    testSaveEncoding();
     testSettings();
     testTitleFlow();
     testChestsAndFlavor();

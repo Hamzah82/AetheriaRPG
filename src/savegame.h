@@ -11,6 +11,12 @@ std::string slotPath(const std::string& basePath, int slot);
 // Human readable label: "Slot 1", "Slot 2", "Slot 3", or "Otomatis".
 std::string slotLabel(int slot);
 
+// Saves are obfuscated and checksummed before they hit disk so casual text
+// editing cannot change gold, level, or items. This is tamper deterrence, not
+// real cryptography. Legacy plaintext saves are still accepted.
+std::string encodeSaveText(const std::string& plain);
+bool decodeSaveText(const std::string& raw, std::string* plain);
+
 struct SaveInfo {
     bool exists = false;
     bool valid = false;
