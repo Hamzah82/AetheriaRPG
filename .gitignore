@@ -1,0 +1,12 @@
+# Hasil build
+build/
+rpgcpp
+tests/run_tests
+*.o
+*.d
+
+# Simpanan dan tangkapan layar lokal
+savegame.dat
+savegame.dat.tmp
+savegame.dat.shot
+shots/
