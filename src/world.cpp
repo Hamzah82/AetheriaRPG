@@ -94,6 +94,7 @@ bool World::encounter(int map, int tx, int ty) const {
     Tile t = tile(map, tx, ty);
     if (m.encounterSet == 1) return t == Tile::TallGrass;
     if (m.encounterSet == 2) return t == Tile::CaveFloor;
+    if (m.encounterSet == 3) return t == Tile::CaveFloor;
     return false;
 }
 
@@ -184,9 +185,10 @@ void World::build() {
         rect(m, 31, 7, 4, 1, Tile::Path);
         rect(m, 4, 29, 3, 1, Tile::Path);
 
-        // Mountain wall and cave mouth.
+        // Mountain wall, cave mouth, and the sealed ruin gate.
         rect(m, 30, 0, 10, 6, Tile::CaveWall);
         m.set(34, 6, Tile::CaveEntrance);
+        m.set(36, 6, Tile::RuinEntrance);
 
         // Tall grass patches.
         rect(m, 8, 10, 5, 4, Tile::TallGrass);
@@ -212,6 +214,7 @@ void World::build() {
 
         m.portals.push_back({34, 6, 1, 1, 2, 16, 23, 1});
         m.portals.push_back({4, 29, 3, 1, 0, 14, 18, 1});
+        m.portals.push_back({36, 6, 1, 1, 3, 17, 24, 2, true});
 
         m.encounterSet = 1;
         maps_.push_back(std::move(m));
@@ -251,6 +254,44 @@ void World::build() {
         m.portals.push_back({16, 25, 1, 1, 1, 34, 7, 0});
 
         m.encounterSet = 2;
+        maps_.push_back(std::move(m));
+    }
+
+    // ---------------- Dawn Ruins ----------------
+    {
+        MapDef m = makeBase("ruins", "Reruntuhan Fajar", 36, 28, Tile::CaveWall);
+
+        // Entry hall, central nave, side chapels, and the guardian's arena.
+        rect(m, 12, 21, 12, 6, Tile::CaveFloor);
+        rect(m, 17, 14, 2, 7, Tile::CaveFloor);
+        rect(m, 7, 8, 22, 7, Tile::CaveFloor);
+        rect(m, 3, 10, 5, 5, Tile::CaveFloor);
+        rect(m, 27, 10, 6, 5, Tile::CaveFloor);
+        rect(m, 12, 2, 12, 7, Tile::CaveFloor);
+
+        m.set(17, 26, Tile::RuinEntrance);
+
+        // Cracked floor hazards.
+        rect(m, 14, 11, 2, 1, Tile::Lava);
+        rect(m, 20, 12, 3, 1, Tile::Lava);
+
+        // Broken pillars frame the guardian arena.
+        m.set(13, 3, Tile::Pillar);
+        m.set(22, 3, Tile::Pillar);
+        m.set(13, 6, Tile::Pillar);
+        m.set(22, 6, Tile::Pillar);
+
+        m.chests.push_back({4, 11, ItemId::DawnSword, 1});
+        m.chests.push_back({30, 11, ItemId::DawnShield, 1});
+        m.chests.push_back({25, 9, ItemId::Gold, 150});
+        m.chests.push_back({9, 12, ItemId::Elixir, 2});
+        m.chests.push_back({20, 22, ItemId::Potion, 2});
+
+        m.npcs.push_back({17, 4, NpcStyle::Guardian, 9, 0});
+
+        m.portals.push_back({17, 26, 1, 1, 1, 36, 7, 0});
+
+        m.encounterSet = 3;
         maps_.push_back(std::move(m));
     }
 }

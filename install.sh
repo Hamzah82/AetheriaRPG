@@ -91,6 +91,7 @@ Bawaan instalasi:
   simpanan    : ~/.aetheria/savegame.dat
   sumber      : ~/.aetheria/source (salinan Git)
   launcher    : ~/.local/share/applications/aetheria.desktop
+  ikon        : ~/.local/share/icons/hicolor/scalable/apps/aetheria.svg
 
 Contoh:
   ./install.sh
@@ -194,6 +195,8 @@ LAUNCHER="$GAME_DIR/aetheria"
 SOURCE_DIR="$GAME_DIR/source"
 APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 DESKTOP_FILE="$APPS_DIR/aetheria.desktop"
+ICONS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
+ICON_FILE="$ICONS_DIR/aetheria.svg"
 
 if [ -z "$JOBS" ]; then
     JOBS="$(nproc 2>/dev/null || printf '2')"
@@ -311,6 +314,14 @@ update_desktop_database() {
     fi
 }
 
+update_icon_cache() {
+    local theme_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        as_priv "$theme_dir" gtk-update-icon-cache -f -t "$theme_dir" >/dev/null 2>&1 ||
+            true
+    fi
+}
+
 remove_legacy_install() {
     local old_bin="$HOME/.local/bin/rpgcpp"
     local old_marker="$HOME/.local/share/aetheria/source"
@@ -400,6 +411,13 @@ if [ "$UNINSTALL" -eq 1 ]; then
         ok "Launcher dihapus: $DESKTOP_FILE"
     else
         warn "Launcher tidak ditemukan: $DESKTOP_FILE"
+    fi
+    if [ -e "$ICON_FILE" ]; then
+        as_priv "$ICONS_DIR" rm -f "$ICON_FILE"
+        update_icon_cache
+        ok "Ikon dihapus: $ICON_FILE"
+    else
+        warn "Ikon tidak ditemukan: $ICON_FILE"
     fi
     remove_legacy_install
     if [ -d "$SOURCE_DIR" ]; then
@@ -510,6 +528,13 @@ rm -f "$tmp_launcher"
 TMP_LAUNCHER=""
 ok "Peluncur terpasang: $LAUNCHER"
 
+info "Memasang ikon aplikasi ke $ICONS_DIR..."
+[ -f "$BUILD_DIR/assets/aetheria.svg" ] || die "Ikon aplikasi tidak ditemukan: $BUILD_DIR/assets/aetheria.svg"
+as_priv "$ICONS_DIR" install -d -m 0755 "$ICONS_DIR"
+as_priv "$ICONS_DIR" install -m 0644 "$BUILD_DIR/assets/aetheria.svg" "$ICON_FILE"
+update_icon_cache
+ok "Ikon terpasang: $ICON_FILE"
+
 info "Memasang launcher desktop ke $APPS_DIR..."
 tmp_desktop="$(mktemp "${TMPDIR:-/tmp}/aetheria-desktop.XXXXXX.desktop")"
 TMP_DESKTOP="$tmp_desktop"
@@ -523,7 +548,7 @@ Comment=Petualangan RPG 2D prosedural berbahasa Indonesia
 Exec="$LAUNCHER"
 TryExec=$LAUNCHER
 Path=$GAME_DIR
-Icon=applications-games
+Icon=aetheria
 Terminal=false
 Categories=Game;RolePlaying;
 Keywords=RPG;game;fantasi;
@@ -553,3 +578,4 @@ printf '  Jalankan : %s\n' "$LAUNCHER"
 printf '  Simpanan : %s/savegame.dat\n' "$GAME_DIR"
 printf '  Sumber   : %s\n' "$SOURCE_DIR"
 printf '  Launcher : %s\n' "$DESKTOP_FILE"
+printf '  Ikon     : %s\n' "$ICON_FILE"

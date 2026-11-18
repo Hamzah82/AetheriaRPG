@@ -65,6 +65,8 @@ struct Platform::Impl {
     int depth = 0;
     bool openFlag = false;
     bool fullscreen = false;
+    bool fullscreenChanged = false;
+    bool focused = true;
     bool wmFullscreen = false;
     bool held[KEY_COUNT] = {};
     ColorChannel red, green, blue;
@@ -134,9 +136,27 @@ struct Platform::Impl {
         XFlush(dpy);
     }
 
+    void setWindowIcon() {
+        if (!dpy || !win) return;
+        std::vector<unsigned long> data;
+        const int sizes[] = {32, 64};
+        for (int size : sizes) {
+            std::vector<uint32_t> pixels = buildWindowIcon(size);
+            data.push_back(static_cast<unsigned long>(size));
+            data.push_back(static_cast<unsigned long>(size));
+            for (uint32_t p : pixels) data.push_back(static_cast<unsigned long>(p));
+        }
+        Atom icon = XInternAtom(dpy, "_NET_WM_ICON", False);
+        if (!icon) return;
+        XChangeProperty(dpy, win, icon, XA_CARDINAL, 32, PropModeReplace,
+                        reinterpret_cast<unsigned char*>(data.data()),
+                        static_cast<int>(data.size()));
+    }
+
     void setFullscreen(bool on) {
         if (!openFlag || fullscreen == on) return;
         fullscreen = on;
+        fullscreenChanged = true;
         if (on) {
             clearSizeHints();
             if (wmFullscreen) {
@@ -190,13 +210,20 @@ bool Platform::open(int scale, const std::string& title, std::string* err,
         return false;
     }
     XStoreName(d.dpy, d.win, title.c_str());
+    XClassHint classHint;
+    classHint.res_name = const_cast<char*>("aetheria");
+    classHint.res_class = const_cast<char*>("Aetheria");
+    XSetClassHint(d.dpy, d.win, &classHint);
+    d.setWindowIcon();
     d.useWindowedHints();
 
     d.wmDelete = XInternAtom(d.dpy, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(d.dpy, d.win, &d.wmDelete, 1);
     d.wmState = XInternAtom(d.dpy, "_NET_WM_STATE", False);
     d.fullscreenAtom = XInternAtom(d.dpy, "_NET_WM_STATE_FULLSCREEN", False);
-    XSelectInput(d.dpy, d.win, KeyPressMask | KeyReleaseMask | StructureNotifyMask | ExposureMask);
+    XSelectInput(d.dpy, d.win,
+                 KeyPressMask | KeyReleaseMask | StructureNotifyMask | ExposureMask |
+                     FocusChangeMask);
 
     Bool supported = False;
     XkbSetDetectableAutoRepeat(d.dpy, True, &supported);
@@ -236,6 +263,8 @@ bool Platform::open(int scale, const std::string& title, std::string* err,
         }
     }
     d.lastFrame = std::chrono::steady_clock::now();
+    d.focused = true;
+    d.fullscreenChanged = false;
     for (int i = 0; i < KEY_COUNT; ++i) d.held[i] = false;
     return true;
 }
@@ -255,6 +284,8 @@ void Platform::close() {
     }
     d.openFlag = false;
     d.fullscreen = false;
+    d.fullscreenChanged = false;
+    d.focused = true;
     d.wmFullscreen = false;
     d.winW = 0;
     d.winH = 0;
@@ -270,6 +301,12 @@ void Platform::close() {
 
 bool Platform::isOpen() const { return impl_->openFlag; }
 bool Platform::isFullscreen() const { return impl_->fullscreen; }
+bool Platform::focused() const { return impl_->focused; }
+bool Platform::takeFullscreenChanged() {
+    bool changed = impl_->fullscreenChanged;
+    impl_->fullscreenChanged = false;
+    return changed;
+}
 int Platform::renderWidth() const { return impl_->winW; }
 int Platform::renderHeight() const { return impl_->winH; }
 
@@ -285,6 +322,11 @@ bool Platform::pump(InputState& in) {
             if (static_cast<Atom>(ev.xclient.data.l[0]) == d.wmDelete) return false;
         } else if (ev.type == DestroyNotify) {
             return false;
+        } else if (ev.type == FocusIn) {
+            d.focused = true;
+        } else if (ev.type == FocusOut) {
+            d.focused = false;
+            for (int i = 0; i < KEY_COUNT; ++i) d.held[i] = false;
         } else if (ev.type == ConfigureNotify) {
             if (ev.xconfigure.window != d.win) continue;
             int width = ev.xconfigure.width;

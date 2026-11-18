@@ -40,6 +40,7 @@ public:
     bool victory() const { return victory_; }
     bool fled() const { return fled_; }
     bool isBoss() const { return boss_; }
+    EnemyType enemyType() const { return info_.type; }
     Phase phase() const { return phase_; }
     int enemyHp() const { return enemyHp_; }
     int enemyMaxHp() const { return enemyMaxHp_; }

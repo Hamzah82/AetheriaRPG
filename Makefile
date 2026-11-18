@@ -5,11 +5,11 @@ TEST_LDLIBS = -ldl -pthread
 BUILD = build
 SRC = src/gfx.cpp src/player.cpp src/world.cpp src/art.cpp src/battle.cpp \
       src/game.cpp src/game_render.cpp src/audio_synth.cpp src/audio.cpp \
-      src/updater.cpp src/platform.cpp src/main.cpp
+      src/updater.cpp src/platform.cpp src/settings.cpp src/savegame.cpp src/main.cpp
 OBJ = $(addprefix $(BUILD)/,$(notdir $(SRC:.cpp=.o)))
 TEST_SRC = tests/test_main.cpp src/gfx.cpp src/player.cpp src/world.cpp src/art.cpp \
            src/battle.cpp src/game.cpp src/game_render.cpp src/audio_synth.cpp \
-           src/audio.cpp src/updater.cpp
+           src/audio.cpp src/updater.cpp src/settings.cpp src/savegame.cpp
 TEST_OBJ = $(addprefix $(BUILD)/,$(notdir $(TEST_SRC:.cpp=.o)))
 DEPS = $(sort $(OBJ:.o=.d) $(TEST_OBJ:.o=.d))
 

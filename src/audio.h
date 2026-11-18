@@ -35,6 +35,12 @@ public:
     void toggleMute();
     bool muted() const;
 
+    // Freezes mixing and outputs silence while the window is unfocused. The
+    // playback position is preserved, so unpausing resumes exactly where the
+    // music stopped. Safe to call without an audio device.
+    void setPaused(bool paused);
+    bool paused() const;
+
     const std::string& error() const;
 
 private:

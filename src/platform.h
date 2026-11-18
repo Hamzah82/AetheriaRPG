@@ -1,9 +1,11 @@
 // platform.h - native window and input (X11)
 #pragma once
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "core.h"
 #include "gfx.h"
@@ -57,6 +59,51 @@ inline ColorChannel colorChannelFromMask(unsigned long mask) {
     return c;
 }
 
+// Deterministic ARGB pixels for _NET_WM_ICON: a golden sun over dark hills.
+// Kept independent from X11 so it can be unit tested headlessly.
+inline std::vector<uint32_t> buildWindowIcon(int size) {
+    auto mix = [](uint32_t a, uint32_t b, float t) {
+        t = clampf(t, 0.0f, 1.0f);
+        int ar = static_cast<int>((a >> 16) & 255), ag = static_cast<int>((a >> 8) & 255),
+            ab = static_cast<int>(a & 255);
+        int br = static_cast<int>((b >> 16) & 255), bg = static_cast<int>((b >> 8) & 255),
+            bb = static_cast<int>(b & 255);
+        int r = ar + static_cast<int>((br - ar) * t);
+        int g = ag + static_cast<int>((bg - ag) * t);
+        int bl = ab + static_cast<int>((bb - ab) * t);
+        return 0xFF000000u | (static_cast<uint32_t>(r) << 16) |
+               (static_cast<uint32_t>(g) << 8) | static_cast<uint32_t>(bl);
+    };
+    if (size < 8) size = 8;
+    std::vector<uint32_t> px(static_cast<size_t>(size) * size, 0xFF0A0C1E);
+    for (int y = 0; y < size; ++y) {
+        for (int x = 0; x < size; ++x) {
+            float u = (x + 0.5f) / static_cast<float>(size);
+            float v = (y + 0.5f) / static_cast<float>(size);
+            uint32_t c = mix(0xFF0A0C1E, 0xFF3A2A5A, v * 0.85f);
+
+            // Stars in the upper half.
+            float star = static_cast<float>(hash2(x / 2, y / 2) % 97) / 97.0f;
+            if (v < 0.55f && star > 0.94f) c = mix(c, 0xFFFFFFFF, 0.55f);
+
+            // Golden sun with a bright core.
+            float dx = u - 0.70f, dy = v - 0.28f;
+            float d = std::sqrt(dx * dx + dy * dy);
+            if (d < 0.20f) c = mix(0xFFFFD87A, 0xFFFFF2C0, 1.0f - d / 0.20f);
+            if (d < 0.10f) c = 0xFFFFF2C0;
+
+            // Layered hills, with a darker foreground.
+            float backHill = 0.63f + 0.075f * std::sin(u * 7.0f + 0.6f);
+            float frontHill = 0.76f + 0.055f * std::sin(u * 5.0f + 2.2f);
+            if (v > backHill) c = mix(c, 0xFF1E3A2A, 0.90f);
+            if (v > frontHill) c = mix(c, 0xFF10241C, 0.92f);
+
+            px[static_cast<size_t>(y) * size + x] = c | 0xFF000000u;
+        }
+    }
+    return px;
+}
+
 // Scale an 8-bit color component into the native channel width.
 inline int channelValue(int value, const ColorChannel& c) {
     if (c.bits >= 8) return value << (c.bits - 8);
@@ -90,6 +137,11 @@ public:
     int renderHeight() const;
     bool isOpen() const;
     bool isFullscreen() const;
+    bool focused() const;
+
+    // True once after the player toggles fullscreen, so main can persist the
+    // new preference immediately instead of waiting for a clean exit.
+    bool takeFullscreenChanged();
 
 private:
     struct Impl;

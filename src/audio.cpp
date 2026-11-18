@@ -93,6 +93,7 @@ struct Audio::Impl {
     std::atomic<bool> running{false};
     std::atomic<bool> failed{false};
     std::atomic<bool> muted{false};
+    std::atomic<bool> paused{false};
     std::atomic<float> musicVol{0.62f};
     std::atomic<float> sfxVol{0.78f};
 
@@ -141,12 +142,32 @@ struct Audio::Impl {
         std::vector<SfxId> events;
         std::vector<Voice> voices;
         MusicId active = MusicId::None;
+        MusicId previous = MusicId::None;
         size_t musicPos = 0;
+        size_t previousPos = 0;
         float fade = 0.0f;
-        constexpr float fadeStep = 1.0f / (AUDIO_RATE * 0.18f);
+        float previousFade = 0.0f;
+        constexpr float fadeStep = 1.0f / (AUDIO_RATE * 0.35f);
 
+        auto trackFor = [&](MusicId id) -> const std::vector<int16_t>* {
+            if (id == MusicId::None || id == MusicId::Count) return nullptr;
+            int idx = static_cast<int>(id);
+            if (idx <= 0 || idx >= static_cast<int>(music.size())) return nullptr;
+            const auto& data = music[static_cast<size_t>(idx)];
+            return data.empty() ? nullptr : &data;
+        };
+
+        // Crossfade instead of hard cuts: the outgoing track keeps playing
+        // under the incoming one for a third of a second.
         auto selectTrack = [&](MusicId id) {
-            active = id == MusicId::Count ? MusicId::None : id;
+            MusicId next = id == MusicId::Count ? MusicId::None : id;
+            if (next == active) return;
+            if (active != MusicId::None && trackFor(active)) {
+                previous = active;
+                previousPos = musicPos;
+                previousFade = 1.0f;
+            }
+            active = next;
             musicPos = 0;
             fade = 0.0f;
         };
@@ -179,30 +200,34 @@ struct Audio::Impl {
                                         }),
                          voices.end());
 
-            const std::vector<int16_t>* track = nullptr;
-            if (active != MusicId::None && active != MusicId::Count) {
-                int idx = static_cast<int>(active);
-                if (idx > 0 && idx < static_cast<int>(music.size()) &&
-                    !music[static_cast<size_t>(idx)].empty()) {
-                    track = &music[static_cast<size_t>(idx)];
-                }
-            }
-
+            const std::vector<int16_t>* track = trackFor(active);
+            const std::vector<int16_t>* outgoing = trackFor(previous);
             const bool silent = muted.load(std::memory_order_relaxed);
+            const bool frozen = paused.load(std::memory_order_relaxed);
             const float mv = silent ? 0.0f : musicVol.load(std::memory_order_relaxed);
             const float sv = silent ? 0.0f : sfxVol.load(std::memory_order_relaxed);
 
             for (int i = 0; i < kFramesPerChunk; ++i) {
                 int32_t sample = 0;
-                if (track) {
-                    sample += static_cast<int32_t>((*track)[musicPos] * mv * fade);
-                    ++musicPos;
-                    if (musicPos >= track->size()) musicPos = 0;
-                    if (fade < 1.0f) fade = std::min(1.0f, fade + fadeStep);
-                }
-                for (Voice& voice : voices) {
-                    sample += static_cast<int32_t>((*voice.data)[voice.pos] * sv * voice.gain);
-                    ++voice.pos;
+                if (!frozen) {
+                    if (track) {
+                        sample += static_cast<int32_t>((*track)[musicPos] * mv * fade);
+                        ++musicPos;
+                        if (musicPos >= track->size()) musicPos = 0;
+                        if (fade < 1.0f) fade = std::min(1.0f, fade + fadeStep);
+                    }
+                    if (outgoing && previousFade > 0.0f) {
+                        sample +=
+                            static_cast<int32_t>((*outgoing)[previousPos] * mv * previousFade);
+                        ++previousPos;
+                        if (previousPos >= outgoing->size()) previousPos = 0;
+                        previousFade = std::max(0.0f, previousFade - fadeStep);
+                        if (previousFade <= 0.0f) previous = MusicId::None;
+                    }
+                    for (Voice& voice : voices) {
+                        sample += static_cast<int32_t>((*voice.data)[voice.pos] * sv * voice.gain);
+                        ++voice.pos;
+                    }
                 }
                 sample = std::max(-32768, std::min(32767, static_cast<int>(sample)));
                 chunk[static_cast<size_t>(i)] = static_cast<int16_t>(sample);
@@ -300,6 +325,7 @@ bool Audio::init(std::string* err) {
         d.requested = MusicId::None;
         d.requestDirty = false;
     }
+    d.paused.store(false);
     d.running.store(true);
     try {
         d.worker = std::thread(&Impl::run, &d);
@@ -321,6 +347,7 @@ void Audio::shutdown() {
     d.requested = MusicId::None;
     d.requestDirty = false;
     d.failed.store(false);
+    d.paused.store(false);
 }
 
 bool Audio::available() const {
@@ -364,6 +391,10 @@ void Audio::setMuted(bool mute) { impl_->muted.store(mute); }
 void Audio::toggleMute() { impl_->muted.store(!impl_->muted.load()); }
 
 bool Audio::muted() const { return impl_->muted.load(); }
+
+void Audio::setPaused(bool paused) { impl_->paused.store(paused); }
+
+bool Audio::paused() const { return impl_->paused.load(); }
 
 const std::string& Audio::error() const { return impl_->errorText; }
 

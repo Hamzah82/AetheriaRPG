@@ -26,15 +26,49 @@ const ShopItem SHOP[SHOP_COUNT] = {
     {2, 2, "Pedang Besi", 140},     {3, 2, "Baju Rantai", 130},
 };
 
-Game::Game(uint64_t seed, std::string savePath) : rng_(seed), savePath_(std::move(savePath)) {
+Game::Game(uint64_t seed, std::string savePath)
+    : rng_(seed), saveBase_(std::move(savePath)), savePath_(slotPath(saveBase_, 0)) {
     chestOpened_.resize(static_cast<size_t>(world_.count()));
     for (int i = 0; i < world_.count(); ++i)
         chestOpened_[static_cast<size_t>(i)].assign(world_.def(i).chests.size(), false);
+    visited_.assign(static_cast<size_t>(world_.count()), false);
     map_ = 0;
     px_ = 14 * TILE;
     py_ = 18 * TILE;
     facing_ = 1;
     updateCamera(100.0f);
+}
+
+void Game::markVisited(int map) {
+    if (map < 0 || map >= static_cast<int>(visited_.size())) return;
+    visited_[static_cast<size_t>(map)] = true;
+}
+
+bool Game::npcHidden(const NpcSpawn& npc) const {
+    if (npc.style == NpcStyle::Warden && flags_.bossDefeated) return true;
+    if (npc.style == NpcStyle::Guardian && flags_.ruinsCleared) return true;
+    return false;
+}
+
+std::string Game::questObjective() const {
+    if (!flags_.metElder) return "Bicara dengan Tetua Ardan di Desa Elmwood.";
+    if (!flags_.bossDefeated) return "Cari Batu Matahari di Gua Bayangan.";
+    if (!flags_.gameCompleted) return "Bawa Batu Matahari ke Tetua Ardan.";
+    if (!flags_.ruinsCleared) return "Taklukkan Penjaga Fajar di Reruntuhan Fajar.";
+    return "Semua misi selesai. Lembah Aetheria aman.";
+}
+
+std::string Game::sideQuestObjective() const {
+    if (flags_.herbQuestDone) return "Selesai: Ramuan untuk Ruslan.";
+    if (!flags_.herbQuestAccepted) return "Petani Ruslan di Elmwood punya permintaan.";
+    return "Kumpulkan 3 Ramuan untuk Petani Ruslan (" + std::to_string(player_.potions) +
+           "/3).";
+}
+
+bool Game::takeSettingsDirty() {
+    bool dirty = settingsDirty_;
+    settingsDirty_ = false;
+    return dirty;
 }
 
 void Game::setAudio(Audio* audio) {
@@ -61,7 +95,7 @@ void Game::updateMusic() {
         case GameState::Menu:
         case GameState::Shop:
             if (map_ == 1) track = MusicId::Overworld;
-            else if (map_ == 2) track = MusicId::Cave;
+            else if (map_ == 2 || map_ == 3) track = MusicId::Cave;
             else track = MusicId::Village;
             break;
         case GameState::Battle:
@@ -100,6 +134,12 @@ void Game::newGame() {
     chestOpened_.assign(static_cast<size_t>(world_.count()), {});
     for (int i = 0; i < world_.count(); ++i)
         chestOpened_[static_cast<size_t>(i)].assign(world_.def(i).chests.size(), false);
+    visited_.assign(static_cast<size_t>(world_.count()), false);
+    markVisited(map_);
+    savePath_ = slotPath(saveBase_, 0);
+    saveSlot_ = 0;
+    titlePage_ = TitlePage::Main;
+    saveConfirmSlot_ = -1;
     stepsSinceBattle_ = 0;
     stepAccum_ = 0.0f;
     portalCooldown_ = 0.5f;
@@ -127,9 +167,45 @@ bool Game::hasSave() const {
     return f.good();
 }
 
-bool Game::saveGame(std::string* err) {
+bool Game::anySaveExists() const { return rpg::anySaveExists(saveBase_); }
+
+std::string Game::slotSummary(int slot) const {
+    SaveInfo info = inspectSave(slotPath(saveBase_, slot));
+    if (!info.exists) return "Kosong";
+    if (!info.valid) return "Berkas rusak";
+    std::string mapName =
+        (info.map >= 0 && info.map < world_.count()) ? world_.def(info.map).name : "?";
+    return "Lv " + std::to_string(info.level) + "  " + mapName + "  " +
+           std::to_string(info.gold) + "G";
+}
+
+bool Game::saveToSlot(int slot, std::string* err) {
+    std::string path = slotPath(saveBase_, slot);
+    if (!writeSaveTo(path, err)) return false;
+    savePath_ = path;
+    saveSlot_ = slot;
+    return true;
+}
+
+bool Game::loadFromSlot(int slot, std::string* err) {
+    std::string path = slotPath(saveBase_, slot);
+    if (!readSaveFrom(path, err)) return false;
+    savePath_ = path;
+    saveSlot_ = slot;
+    titlePage_ = TitlePage::Main;
+    return true;
+}
+
+bool Game::autosave() {
+    if (!flags_.introSeen) return false;
+    return writeSaveTo(slotPath(saveBase_, -1), nullptr);
+}
+
+bool Game::saveGame(std::string* err) { return writeSaveTo(savePath_, err); }
+
+bool Game::writeSaveTo(const std::string& path, std::string* err) {
     if (err) err->clear();
-    std::string tmp = savePath_ + ".tmp";
+    std::string tmp = path + ".tmp";
     std::ofstream f(tmp, std::ios::trunc);
     if (!f) {
         if (err) *err = "Tidak bisa menulis berkas simpanan.";
@@ -143,7 +219,15 @@ bool Game::saveGame(std::string* err) {
     if (flags_.metElder) flagBits |= 16;
     if (flags_.introSeen) flagBits |= 32;
 
-    f << "version 1\n";
+    int questBits = 0;
+    if (flags_.herbQuestAccepted) questBits |= 1;
+    if (flags_.herbQuestDone) questBits |= 2;
+    if (flags_.ruinsCleared) questBits |= 4;
+    int visitedMask = 0;
+    for (size_t i = 0; i < visited_.size() && i < 31; ++i)
+        if (visited_[i]) visitedMask |= (1 << i);
+
+    f << "version 2\n";
     f << "map " << map_ << "\n";
     f << "x " << px_ << "\n";
     f << "y " << py_ << "\n";
@@ -159,6 +243,8 @@ bool Game::saveGame(std::string* err) {
     f << "elixirs " << player_.elixirs << "\n";
     f << "sunstone " << (player_.hasSunstone ? 1 : 0) << "\n";
     f << "flags " << flagBits << "\n";
+    f << "quests " << questBits << "\n";
+    f << "visited " << visitedMask << "\n";
     f << "chests";
     for (int i = 0; i < world_.count(); ++i) {
         int mask = 0;
@@ -175,7 +261,7 @@ bool Game::saveGame(std::string* err) {
         return false;
     }
     f.close();
-    if (std::rename(tmp.c_str(), savePath_.c_str()) != 0) {
+    if (std::rename(tmp.c_str(), path.c_str()) != 0) {
         if (err) *err = "Gagal menyimpan berkas.";
         std::remove(tmp.c_str());
         return false;
@@ -183,13 +269,15 @@ bool Game::saveGame(std::string* err) {
     return true;
 }
 
-bool Game::loadGame(std::string* err) {
+bool Game::loadGame(std::string* err) { return readSaveFrom(savePath_, err); }
+
+bool Game::readSaveFrom(const std::string& path, std::string* err) {
     if (err) err->clear();
     auto fail = [&](const char* msg) {
         if (err) *err = msg;
         return false;
     };
-    std::ifstream f(savePath_);
+    std::ifstream f(path);
     if (!f) return fail("Tidak ada berkas simpanan.");
 
     std::map<std::string, std::string> kv;
@@ -220,7 +308,8 @@ bool Game::loadGame(std::string* err) {
         }
     };
 
-    if (getInt("version", 0, 0, 999) != 1) return fail("Versi simpanan tidak dikenal.");
+    int version = getInt("version", 0, 0, 999);
+    if (version != 1 && version != 2) return fail("Versi simpanan tidak dikenal.");
     int newMap = getInt("map", -1, -1, world_.count());
     if (newMap < 0 || newMap >= world_.count()) return fail("Peta pada simpanan tidak valid.");
 
@@ -232,8 +321,8 @@ bool Game::loadGame(std::string* err) {
     p.hp = getInt("hp", p.maxHp, 0, p.maxHp);
     if (p.hp <= 0) p.hp = 1;
     p.mp = getInt("mp", p.maxMp, 0, p.maxMp);
-    p.weapon = getInt("weapon", 0, 0, 2);
-    p.armor = getInt("armor", 0, 0, 2);
+    p.weapon = getInt("weapon", 0, 0, 3);
+    p.armor = getInt("armor", 0, 0, 3);
     p.potions = getInt("potions", 0, 0, 99);
     p.elixirs = getInt("elixirs", 0, 0, 99);
     p.hasSunstone = getInt("sunstone", 0, 0, 1) != 0;
@@ -276,6 +365,11 @@ bool Game::loadGame(std::string* err) {
     flags_.gameCompleted = (flagBits & 8) != 0;
     flags_.metElder = (flagBits & 16) != 0;
     flags_.introSeen = (flagBits & 32) != 0;
+    int questBits = getInt("quests", 0, 0, 7);
+    flags_.herbQuestAccepted = (questBits & 1) != 0;
+    flags_.herbQuestDone = (questBits & 2) != 0;
+    if (flags_.herbQuestDone) flags_.herbQuestAccepted = true;
+    flags_.ruinsCleared = (questBits & 4) != 0;
 
     map_ = newMap;
     px_ = nx;
@@ -285,6 +379,18 @@ bool Game::loadGame(std::string* err) {
     chestOpened_.assign(static_cast<size_t>(world_.count()), {});
     for (int i = 0; i < world_.count(); ++i)
         chestOpened_[static_cast<size_t>(i)].assign(world_.def(i).chests.size(), false);
+
+    visited_.assign(static_cast<size_t>(world_.count()), false);
+    auto vit = kv.find("visited");
+    if (vit != kv.end()) {
+        std::istringstream vs(vit->second);
+        int mask = 0;
+        if (vs >> mask) {
+            for (size_t i = 0; i < visited_.size() && i < 31; ++i)
+                visited_[i] = (mask & (1 << i)) != 0;
+        }
+    }
+    markVisited(map_);
 
     auto cit = kv.find("chests");
     if (cit != kv.end()) {
@@ -354,6 +460,7 @@ void Game::updateTransition(float dt) {
 void Game::changeMap(int target, int spawnTileX, int spawnTileY, int facing) {
     if (target < 0 || target >= world_.count()) return;
     map_ = target;
+    markVisited(map_);
     px_ = static_cast<float>(spawnTileX * TILE);
     py_ = static_cast<float>(spawnTileY * TILE);
     clampPlayerToMap();
@@ -398,10 +505,7 @@ bool Game::collides(float nx, float ny) const {
         for (int tx = tx0; tx <= tx1; ++tx) {
             if (world_.blocked(map_, tx, ty)) return true;
             const NpcSpawn* npc = world_.npcAt(map_, tx, ty);
-            if (npc) {
-                bool hidden = npc->style == NpcStyle::Warden && flags_.bossDefeated;
-                if (!hidden) return true;
-            }
+            if (npc && !npcHidden(*npc)) return true;
             if (world_.chestAt(map_, tx, ty)) return true;
         }
     }
@@ -489,7 +593,7 @@ void Game::onStep() {
     ++stepsSinceBattle_;
     if (!world_.encounter(map_, tx, ty)) return;
     if (stepsSinceBattle_ < 4) return;
-    float chance = map_ == 2 ? 0.16f : 0.13f;
+    float chance = map_ == 3 ? 0.17f : (map_ == 2 ? 0.16f : 0.13f);
     if (!rng_.chance(chance)) return;
     EnemyType type = EnemyType::Slime;
     pickRandomEnemy(&type);
@@ -503,7 +607,11 @@ void Game::onStep() {
 
 void Game::pickRandomEnemy(EnemyType* type) {
     int r = rng_.range(0, 99);
-    if (map_ == 2) {
+    if (map_ == 3) {
+        if (r < 45) *type = EnemyType::Skeleton;
+        else if (r < 80) *type = EnemyType::Wolf;
+        else *type = EnemyType::Bat;
+    } else if (map_ == 2) {
         if (r < 25) *type = EnemyType::Bat;
         else if (r < 60) *type = EnemyType::Wolf;
         else *type = EnemyType::Skeleton;
@@ -522,6 +630,14 @@ void Game::checkPortal() {
     int ty = tileOfY(py_ + 13.0f);
     const Portal* portal = world_.portalAt(map_, tx, ty);
     if (!portal) return;
+    if (portal->requiresSunstone && !player_.hasSunstone) {
+        portalCooldown_ = 1.8f;
+        playSfx(SfxId::MenuCancel);
+        startDialogue("Segel Fajar",
+                      {"Sebuah segel cahaya menutup jalan ini.",
+                       "Hanya pembawa Batu Matahari yang dapat membukanya."});
+        return;
+    }
     int target = portal->targetMap, sx = portal->spawnX, sy = portal->spawnY, sd = portal->spawnDir;
     portalCooldown_ = 1.4f;
     playSfx(SfxId::Portal);
@@ -582,6 +698,26 @@ void Game::openChest(const ChestSpawn& chest, int index) {
             flags_.sunstoneFound = true;
             msg = "Batu Matahari! Kehangatannya mengusir kegelapan.";
             break;
+        case ItemId::DawnSword:
+            if (player_.weapon < 3) {
+                player_.weapon = 3;
+                msg = "Kau menemukan Pedang Fajar! Cahayanya membelah bayangan.";
+            } else {
+                player_.gold += 200;
+                msg = "Pedang Fajar cadangan. Dijual +200 emas.";
+            }
+            spawnBurst(cx, cy, 20, 0xFFFFD87A, 36.0f);
+            break;
+        case ItemId::DawnShield:
+            if (player_.armor < 3) {
+                player_.armor = 3;
+                msg = "Kau menemukan Perisai Fajar! Pertahananmu bersinar.";
+            } else {
+                player_.gold += 200;
+                msg = "Perisai Fajar cadangan. Dijual +200 emas.";
+            }
+            spawnBurst(cx, cy, 20, 0xFFFFD87A, 36.0f);
+            break;
         default:
             msg = "Peti kosong.";
             break;
@@ -598,8 +734,7 @@ void Game::interact() {
 
     const NpcSpawn* npc = world_.npcAt(map_, tx, ty);
     if (npc) {
-        bool hidden = npc->style == NpcStyle::Warden && flags_.bossDefeated;
-        if (hidden) return;
+        if (npcHidden(*npc)) return;
         switch (npc->style) {
             case NpcStyle::Elder: elderTalk(); break;
             case NpcStyle::Shopkeeper:
@@ -611,6 +746,7 @@ void Game::interact() {
             case NpcStyle::Innkeeper: innTalk(); break;
             case NpcStyle::Guard: guardTalk(); break;
             case NpcStyle::Warden: wardenTalk(); break;
+            case NpcStyle::Guardian: guardianTalk(); break;
             default: flavorTalk(npc->dialogue); break;
         }
         return;
@@ -635,6 +771,14 @@ void Game::interact() {
     } else if (t == Tile::CaveEntrance) {
         startDialogue("Gua Bayangan", {"Angin dingin berhembus dari dalam gua...",
                                        "Masuklah untuk melanjutkan perjalanan."});
+    } else if (t == Tile::RuinEntrance) {
+        if (player_.hasSunstone) {
+            startDialogue("Reruntuhan Fajar", {"Batu Matahari bergetar di tasmu.",
+                                               "Segel kuno terbuka. Tangga menuju cahaya fajar."});
+        } else {
+            startDialogue("Reruntuhan Fajar", {"Reruntuhan tertutup segel cahaya.",
+                                               "Cahaya itu menolak siapa pun tanpa Batu Matahari."});
+        }
     }
 }
 
@@ -642,6 +786,7 @@ void Game::elderTalk() {
     if (!flags_.metElder) {
         flags_.metElder = true;
         flags_.questAccepted = true;
+        autosave();
         startDialogue("Tetua Ardan",
                       {"Ah, kau pasti pemuda yang diceritakan ramalan itu.",
                        "Batu Matahari, cahaya lembah ini, dicuri oleh Warden Bayangan.",
@@ -652,6 +797,7 @@ void Game::elderTalk() {
     }
     if (flags_.sunstoneFound && !flags_.gameCompleted) {
         flags_.gameCompleted = true;
+        autosave();
         startDialogue("Tetua Ardan",
                       {"Batu Matahari! Aku bisa merasakan kehangatannya.",
                        "Kau telah mengusir bayangan dari Lembah Aetheria.",
@@ -722,6 +868,22 @@ void Game::wardenTalk() {
                   });
 }
 
+void Game::guardianTalk() {
+    if (flags_.ruinsCleared) return;
+    uint64_t seed = rng_.next();
+    startDialogue("Penjaga Fajar",
+                  {"Aku telah menunggu seribu tahun di bawah sinar yang padam.",
+                   "Batu Matahari di tasmu... akhirnya cahaya itu kembali.",
+                   "Tetapi aku tidak akan menyerahkannya tanpa ujian.",
+                   "Angkat senjatamu, pahlawan. Buktikan kau layak membawa fajar."},
+                  [this, seed] {
+                      startTransition([this, seed] {
+                          state_ = GameState::Battle;
+                          battle_.begin(player_, EnemyType::Guardian, true, seed);
+                      });
+                  });
+}
+
 void Game::flavorTalk(int dialogueId) {
     switch (dialogueId) {
         case 4:
@@ -729,8 +891,36 @@ void Game::flavorTalk(int dialogueId) {
                                         "Aku pernah lihat slime hijau besar di sana."});
             break;
         case 5:
-            startDialogue("Petani Ruslan", {"Panen tahun ini buruk. Tanah terasa dingin.",
-                                            "Mereka bilang itu ulah Warden di gua."});
+            if (flags_.herbQuestDone) {
+                startDialogue("Petani Ruslan",
+                              {"Ramuanmu menyelamatkan panenku. Terima kasih, pahlawan!",
+                               "Lembah ini sungguh beruntung memilikimu."});
+            } else if (!flags_.herbQuestAccepted) {
+                flags_.herbQuestAccepted = true;
+                startDialogue("Petani Ruslan",
+                              {"Panen tahun ini buruk. Tanah terasa dingin sejak Warden datang.",
+                               "Aku butuh 3 Ramuan untuk merawat bibit-bibit yang tersisa.",
+                               "Bawa ke sini, dan kubayar 120 emas plus satu Eliksir."});
+            } else if (player_.potions >= 3) {
+                player_.potions -= 3;
+                player_.gold += 120;
+                player_.elixirs = std::min(99, player_.elixirs + 1);
+                flags_.herbQuestDone = true;
+                autosave();
+                playSfx(SfxId::LevelUp);
+                spawnBurst(px_ + 8.0f, py_ + 8.0f, 18, pal::gold, 30.0f);
+                addFloat(px_ + 8.0f, py_ - 4.0f, "+120G", pal::gold);
+                startDialogue("Petani Ruslan",
+                              {"Ketiga Ramuan ini akan menyelamatkan musim panen!",
+                               "Terimalah 120 emas dan sebuah Eliksir. Kau teman sejati.",
+                               "Misi sampingan selesai: Ramuan untuk Ruslan."});
+            } else {
+                std::string progress =
+                    "Ramuan terkumpul: " + std::to_string(player_.potions) + "/3.";
+                startDialogue("Petani Ruslan",
+                              {"Bibit-bibitku masih lemah. Aku menunggu Ramuanmu.",
+                               progress, "Toko Rilla menjual Ramuan bila persediaanmu habis."});
+            }
             break;
         case 8:
             startDialogue("Warga Desa", {"Toko Rilla buka tiap hari.",
@@ -754,6 +944,7 @@ void Game::closeMenu() {
     state_ = GameState::Explore;
     menuPage_ = 0;
     menuIndex_ = 0;
+    saveConfirmSlot_ = -1;
     menuMessage_.clear();
 }
 
@@ -783,16 +974,26 @@ void Game::useFieldItem(bool elixir) {
     menuMessageTimer_ = 2.4f;
 }
 
-void Game::saveFromMenu() {
+void Game::saveFromMenu(int slot) {
+    std::string path = slotPath(saveBase_, slot);
+    SaveInfo info = inspectSave(path);
+    if (info.valid && saveConfirmSlot_ != slot) {
+        saveConfirmSlot_ = slot;
+        menuMessage_ = slotLabel(slot) + " sudah terisi. Tekan Z lagi untuk menimpa.";
+        menuMessageTimer_ = 3.0f;
+        playSfx(SfxId::MenuCancel);
+        return;
+    }
     std::string err;
-    if (saveGame(&err)) {
-        menuMessage_ = "Permainan disimpan.";
+    if (saveToSlot(slot, &err)) {
+        menuMessage_ = "Permainan disimpan di " + slotLabel(slot) + ".";
+        saveConfirmSlot_ = -1;
         playSfx(SfxId::Save);
     } else {
         menuMessage_ = err.empty() ? "Gagal menyimpan." : err;
         playSfx(SfxId::MenuCancel);
     }
-    menuMessageTimer_ = 2.6f;
+    menuMessageTimer_ = 3.0f;
 }
 
 void Game::updateTitle(float dt, const InputState& in) {
@@ -819,17 +1020,69 @@ void Game::updateTitle(float dt, const InputState& in) {
     if (titleUpdateActive_ && updater_ && updater_->running()) return;
 
     menuFeedback(in);
+
+    if (titlePage_ == TitlePage::Load) {
+        if (in.hit(Key::Up)) titleSlotIndex_ = (titleSlotIndex_ + 4) % 5;
+        if (in.hit(Key::Down)) titleSlotIndex_ = (titleSlotIndex_ + 1) % 5;
+        if (in.hit(Key::Cancel)) {
+            titlePage_ = TitlePage::Main;
+            titleIndex_ = 1;
+            return;
+        }
+        if (!in.hit(Key::Confirm)) return;
+        if (titleSlotIndex_ == 4) {
+            titlePage_ = TitlePage::Main;
+            titleIndex_ = 1;
+            return;
+        }
+        const int slots[4] = {-1, 0, 1, 2};
+        int slot = slots[titleSlotIndex_];
+        std::string err;
+        if (!loadFromSlot(slot, &err)) {
+            titleMsg_ = err.empty() ? "Slot itu kosong." : err;
+            titleMsgTimer_ = 2.5f;
+        } else {
+            titleMsg_.clear();
+            titleMsgTimer_ = 0.0f;
+        }
+        return;
+    }
+
+    if (titlePage_ == TitlePage::ConfirmNew) {
+        if (in.hit(Key::Up) || in.hit(Key::Down)) titleConfirmIndex_ = 1 - titleConfirmIndex_;
+        if (in.hit(Key::Cancel)) {
+            titlePage_ = TitlePage::Main;
+            titleIndex_ = 0;
+            return;
+        }
+        if (!in.hit(Key::Confirm)) return;
+        if (titleConfirmIndex_ == 0) {
+            newGame();
+        } else {
+            titlePage_ = TitlePage::Main;
+            titleIndex_ = 0;
+        }
+        return;
+    }
+
     if (in.hit(Key::Up)) titleIndex_ = (titleIndex_ + 3) % 4;
     if (in.hit(Key::Down)) titleIndex_ = (titleIndex_ + 1) % 4;
     if (!in.hit(Key::Confirm)) return;
 
     if (titleIndex_ == 0) {
-        newGame();
+        if (anySaveExists()) {
+            titlePage_ = TitlePage::ConfirmNew;
+            titleConfirmIndex_ = 1;
+        } else {
+            newGame();
+        }
     } else if (titleIndex_ == 1) {
-        std::string err;
-        if (!loadGame(&err)) {
-            titleMsg_ = err;
-            titleMsgTimer_ = 2.5f;
+        if (!anySaveExists()) {
+            titleMsg_ = "Belum ada simpanan. Mulai permainan baru dulu.";
+            titleMsgTimer_ = 2.8f;
+        } else {
+            titlePage_ = TitlePage::Load;
+            titleSlotIndex_ = 1;
         }
     } else if (titleIndex_ == 2) {
         if (!updater_) {
@@ -940,10 +1193,12 @@ void Game::updateBattle(float dt, const InputState& in) {
     if (!battle_.done()) return;
 
     if (battle_.victory()) {
-        if (battle_.isBoss() && !flags_.bossDefeated) {
+        if (battle_.isBoss() && battle_.enemyType() == EnemyType::Warden &&
+            !flags_.bossDefeated) {
             flags_.bossDefeated = true;
             flags_.sunstoneFound = true;
             player_.hasSunstone = true;
+            autosave();
             state_ = GameState::Dialogue;
             startDialogue("Warden Bayangan",
                           {"Kegelapan... menarikku kembali...",
@@ -954,6 +1209,21 @@ void Game::updateBattle(float dt, const InputState& in) {
                               mapBanner_ = 3.0f;
                               mapBannerText_ = "Batu Matahari ditemukan!";
                               spawnBurst(px_ + 8.0f, py_ + 8.0f, 26, pal::gold, 40.0f);
+                          });
+        } else if (battle_.isBoss() && battle_.enemyType() == EnemyType::Guardian &&
+                   !flags_.ruinsCleared) {
+            flags_.ruinsCleared = true;
+            autosave();
+            state_ = GameState::Dialogue;
+            startDialogue("Penjaga Fajar",
+                          {"Kau... membawa cahaya yang sesungguhnya.",
+                           "Aku telah lama terjaga tanpa tujuan. Kini tugasku selesai.",
+                           "Ambil perbekalan di reruntuhan ini. Lembah Aetheria aman."},
+                          [this] {
+                              state_ = GameState::Explore;
+                              mapBanner_ = 3.0f;
+                              mapBannerText_ = "Reruntuhan Fajar ditaklukkan!";
+                              spawnBurst(px_ + 8.0f, py_ + 8.0f, 26, 0xFFFFD87A, 40.0f);
                           });
         } else {
             state_ = GameState::Explore;
@@ -974,8 +1244,8 @@ void Game::updateMenu(float dt, const InputState& in) {
     menuMessageTimer_ = std::max(0.0f, menuMessageTimer_ - dt);
     menuFeedback(in);
     if (menuPage_ == 0) {
-        if (in.hit(Key::Up)) menuIndex_ = (menuIndex_ + 4) % 5;
-        if (in.hit(Key::Down)) menuIndex_ = (menuIndex_ + 1) % 5;
+        if (in.hit(Key::Up)) menuIndex_ = (menuIndex_ + 5) % 6;
+        if (in.hit(Key::Down)) menuIndex_ = (menuIndex_ + 1) % 6;
         if (in.hit(Key::Cancel)) {
             closeMenu();
             return;
@@ -988,9 +1258,14 @@ void Game::updateMenu(float dt, const InputState& in) {
                 menuPage_ = 2;
                 menuIndex_ = 0;
             } else if (menuIndex_ == 2) {
-                saveFromMenu();
-            } else if (menuIndex_ == 3) {
                 menuPage_ = 3;
+                menuIndex_ = 0;
+            } else if (menuIndex_ == 3) {
+                menuPage_ = 4;
+                saveConfirmSlot_ = -1;
+                menuIndex_ = clampInt(saveSlot_ + 1, 1, 3);
+            } else if (menuIndex_ == 4) {
+                menuPage_ = 5;
                 menuIndex_ = 0;
             } else {
                 closeMenu();
@@ -1009,7 +1284,41 @@ void Game::updateMenu(float dt, const InputState& in) {
             menuPage_ = 0;
             menuIndex_ = 1;
         }
+    } else if (menuPage_ == 3) {
+        if (in.hit(Key::Cancel) || in.hit(Key::Confirm)) {
+            menuPage_ = 0;
+            menuIndex_ = 2;
+        }
+    } else if (menuPage_ == 4) {
+        if (in.hit(Key::Up)) {
+            menuIndex_ = (menuIndex_ + 4) % 5;
+            saveConfirmSlot_ = -1;
+        }
+        if (in.hit(Key::Down)) {
+            menuIndex_ = (menuIndex_ + 1) % 5;
+            saveConfirmSlot_ = -1;
+        }
+        if (in.hit(Key::Cancel)) {
+            menuPage_ = 0;
+            menuIndex_ = 3;
+            saveConfirmSlot_ = -1;
+            return;
+        }
+        if (in.hit(Key::Confirm)) {
+            if (menuIndex_ == 4) {
+                menuPage_ = 0;
+                menuIndex_ = 3;
+                saveConfirmSlot_ = -1;
+            } else if (menuIndex_ == 0) {
+                menuMessage_ = "Autosave ditulis otomatis di titik cerita.";
+                menuMessageTimer_ = 3.0f;
+                playSfx(SfxId::MenuCancel);
+            } else {
+                saveFromMenu(menuIndex_ - 1);
+            }
+        }
     } else {
+        bool changed = false;
         if (audio_) {
             if (in.hit(Key::Up)) menuIndex_ = (menuIndex_ + 3) % 4;
             if (in.hit(Key::Down)) menuIndex_ = (menuIndex_ + 1) % 4;
@@ -1017,26 +1326,30 @@ void Game::updateMenu(float dt, const InputState& in) {
                 float delta = in.hit(Key::Left) ? -0.1f : 0.1f;
                 if (menuIndex_ == 0) {
                     audio_->setMusicVolume(audio_->musicVolume() + delta);
+                    changed = true;
                 } else if (menuIndex_ == 1) {
                     audio_->setSfxVolume(audio_->sfxVolume() + delta);
+                    changed = true;
                 }
             }
             if (in.hit(Key::Confirm)) {
                 if (menuIndex_ == 2) {
                     audio_->toggleMute();
+                    changed = true;
                 } else if (menuIndex_ == 3) {
                     menuPage_ = 0;
-                    menuIndex_ = 3;
+                    menuIndex_ = 4;
                 }
             }
             if (in.hit(Key::Cancel)) {
                 menuPage_ = 0;
-                menuIndex_ = 3;
+                menuIndex_ = 4;
             }
         } else if (in.hit(Key::Cancel) || in.hit(Key::Confirm)) {
             menuPage_ = 0;
-            menuIndex_ = 3;
+            menuIndex_ = 4;
         }
+        if (changed) settingsDirty_ = true;
     }
 }
 
@@ -1109,6 +1422,7 @@ void Game::updateGameOver(float dt, const InputState& in) {
     } else {
         state_ = GameState::Title;
         titleIndex_ = 0;
+        titlePage_ = TitlePage::Main;
     }
 }
 
@@ -1118,6 +1432,7 @@ void Game::updateEnding(float dt, const InputState& in) {
     if (in.hit(Key::Confirm) && endingScroll_ > 100.0f) {
         state_ = GameState::Title;
         titleIndex_ = 0;
+        titlePage_ = TitlePage::Main;
         endingScroll_ = 0.0f;
     }
 }
@@ -1150,6 +1465,7 @@ void Game::update(float dt, const InputState& in) {
 void Game::debugWarp(int map, int tx, int ty) {
     if (map < 0 || map >= world_.count()) return;
     map_ = map;
+    markVisited(map);
     px_ = static_cast<float>(tx * TILE);
     py_ = static_cast<float>(ty * TILE);
     clampPlayerToMap();

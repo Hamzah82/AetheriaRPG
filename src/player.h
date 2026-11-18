@@ -6,7 +6,17 @@
 
 namespace rpg {
 
-enum class ItemId : uint8_t { Gold, Potion, Elixir, IronSword, ChainMail, Sunstone, Count };
+enum class ItemId : uint8_t {
+    Gold,
+    Potion,
+    Elixir,
+    IronSword,
+    ChainMail,
+    Sunstone,
+    DawnSword,
+    DawnShield,
+    Count,
+};
 
 struct ItemDef {
     const char* name;
@@ -28,8 +38,8 @@ struct ArmorDef {
 };
 
 extern const ItemDef ITEMS[static_cast<int>(ItemId::Count)];
-extern const WeaponDef WEAPONS[3];
-extern const ArmorDef ARMORS[3];
+extern const WeaponDef WEAPONS[4];
+extern const ArmorDef ARMORS[4];
 
 struct Player {
     int level = 1;

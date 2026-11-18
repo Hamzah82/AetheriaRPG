@@ -127,21 +127,58 @@ void Game::renderTitle(Framebuffer& fb) {
     fb.textShadow(76, 40, "AETHERIA", pal::uiBorder, rgba(20, 14, 30), 4);
     centered(fb, 78, "BAYANGAN TERAKHIR", 0xFFB8A8D8, 1);
 
-    int boxY = 118;
-    panel(fb, 92, boxY, 136, 92);
-    const char* labels[4] = {"Mulai Baru", "Lanjutkan", "Perbarui Game", "Keluar"};
-    if (updater_ && updater_->running()) {
-        labels[2] = "Memperbarui...";
-    } else if (updater_ && updater_->finished() && updater_->success()) {
-        labels[2] = "Mulai Ulang";
-    }
-    for (int i = 0; i < 4; ++i) {
-        int y = boxY + 10 + i * 20;
-        bool sel = i == titleIndex_;
-        if (sel) fb.fillRect(98, y - 4, 124, 16, pal::uiPanelLight);
-        fb.text(116, y, labels[i], sel ? pal::white : pal::uiTextDim);
-        if (sel) cursorArrow(fb, 102, y + 1, pal::uiBorder);
-        if (i == 1 && !hasSave()) fb.text(214, y, "-", pal::uiTextDim);
+    if (titlePage_ == TitlePage::Load) {
+        panel(fb, 30, 96, 260, 116);
+        centered(fb, 102, "MUAT PERMAINAN", pal::uiBorder, 1);
+        const int slots[4] = {-1, 0, 1, 2};
+        for (int i = 0; i < 5; ++i) {
+            int y = 118 + i * 17;
+            bool sel = i == titleSlotIndex_;
+            if (sel) fb.fillRect(36, y - 4, 248, 15, pal::uiPanelLight);
+            if (sel) cursorArrow(fb, 40, y + 1, pal::uiBorder);
+            std::string label = i < 4 ? slotLabel(slots[i]) : "Kembali";
+            fb.text(52, y, label, sel ? pal::white : pal::uiTextDim);
+            if (i < 4) {
+                std::string summary = slotSummary(slots[i]);
+                fb.text(108, y, summary,
+                        summary == "Kosong" ? pal::uiTextDim : (sel ? pal::gold : pal::uiText));
+            }
+        }
+    } else if (titlePage_ == TitlePage::ConfirmNew) {
+        panel(fb, 48, 110, 224, 100);
+        centered(fb, 118, "MULAI PERMAINAN BARU?", pal::uiBorder, 1);
+        auto lines = wrapText("Permainan baru mulai dari Slot 1. Simpanan lain tetap utuh.",
+                              200, 1);
+        int ly = 134;
+        for (const auto& line : lines) {
+            centered(fb, ly, line, pal::uiTextDim, 1);
+            ly += 11;
+        }
+        const char* options[2] = {"Ya, mulai baru", "Batal"};
+        for (int i = 0; i < 2; ++i) {
+            int y = 158 + i * 18;
+            bool sel = i == titleConfirmIndex_;
+            if (sel) fb.fillRect(58, y - 4, 204, 16, pal::uiPanelLight);
+            if (sel) cursorArrow(fb, 62, y + 1, pal::uiBorder);
+            fb.text(78, y, options[i], sel ? pal::white : pal::uiTextDim);
+        }
+    } else {
+        int boxY = 118;
+        panel(fb, 92, boxY, 136, 92);
+        const char* labels[4] = {"Mulai Baru", "Lanjutkan", "Perbarui Game", "Keluar"};
+        if (updater_ && updater_->running()) {
+            labels[2] = "Memperbarui...";
+        } else if (updater_ && updater_->finished() && updater_->success()) {
+            labels[2] = "Mulai Ulang";
+        }
+        for (int i = 0; i < 4; ++i) {
+            int y = boxY + 10 + i * 20;
+            bool sel = i == titleIndex_;
+            if (sel) fb.fillRect(98, y - 4, 124, 16, pal::uiPanelLight);
+            fb.text(116, y, labels[i], sel ? pal::white : pal::uiTextDim);
+            if (sel) cursorArrow(fb, 102, y + 1, pal::uiBorder);
+            if (i == 1 && !anySaveExists()) fb.text(214, y, "-", pal::uiTextDim);
+        }
     }
 
     std::string message;
@@ -155,10 +192,12 @@ void Game::renderTitle(Framebuffer& fb) {
 
     if (!message.empty()) {
         int w = std::min(300, fb.textWidth(message) + 18);
-        panel(fb, (VIEW_W - w) / 2, 214, w, 22);
-        fb.text((VIEW_W - fb.textWidth(message)) / 2, 221, message, pal::hp);
-    } else {
+        panel(fb, (VIEW_W - w) / 2, 218, w, 22);
+        fb.text((VIEW_W - fb.textWidth(message)) / 2, 225, message, pal::hp);
+    } else if (titlePage_ == TitlePage::Main) {
         centered(fb, 228, "Panah: gerak   Z: pilih   X: menu", rgba(180, 176, 200, 180), 1);
+    } else {
+        centered(fb, 228, "Z: pilih   X: kembali", rgba(180, 176, 200, 180), 1);
     }
 }
 
@@ -185,7 +224,7 @@ void Game::renderExplore(Framebuffer& fb) {
         items.push_back({static_cast<float>(md.chests[i].y * TILE + 16), 0, static_cast<int>(i)});
     for (size_t i = 0; i < md.npcs.size(); ++i) {
         const auto& n = md.npcs[i];
-        if (n.style == NpcStyle::Warden && flags_.bossDefeated) continue;
+        if (npcHidden(n)) continue;
         items.push_back({static_cast<float>(n.y * TILE + 16), 1, static_cast<int>(i)});
     }
     items.push_back({py_ + 16.0f, 2, 0});
@@ -225,10 +264,12 @@ void Game::renderExplore(Framebuffer& fb) {
         int ty = tileOfY(py_ + 12.0f) + dy;
         bool show = false;
         const NpcSpawn* npc = world_.npcAt(map_, tx, ty);
-        if (npc && !(npc->style == NpcStyle::Warden && flags_.bossDefeated)) show = true;
+        if (npc && !npcHidden(*npc)) show = true;
         if (world_.chestAt(map_, tx, ty)) show = true;
         Tile t = world_.tile(map_, tx, ty);
-        if (t == Tile::Sign || t == Tile::Door || t == Tile::CaveEntrance) show = true;
+        if (t == Tile::Sign || t == Tile::Door || t == Tile::CaveEntrance ||
+            t == Tile::RuinEntrance)
+            show = true;
         if (show) {
             int ax = tx * TILE - camX + 8;
             int ay = ty * TILE - camY - 4 + static_cast<int>(std::sin(globalTime_ * 5.0f) * 2.0f);
@@ -237,8 +278,8 @@ void Game::renderExplore(Framebuffer& fb) {
         }
     }
 
-    // Cave lighting.
-    if (map_ == 2) {
+    // Cave and ruin lighting.
+    if (map_ == 2 || map_ == 3) {
         float lx = px_ + 8.0f - camX;
         float ly = py_ + 8.0f - camY;
         for (int y = 0; y < VIEW_H; ++y) {
@@ -279,6 +320,8 @@ void Game::renderExplore(Framebuffer& fb) {
         fb.fillCircle(300, 34, 3, pal::gold);
         fb.fillCircle(300, 34, 1, pal::white);
     }
+
+    renderMinimap(fb, 244, 166, 70, 64);
 }
 
 void Game::renderDialogue(Framebuffer& fb) {
@@ -312,46 +355,45 @@ void Game::renderMenu(Framebuffer& fb) {
     fb.text(292 - static_cast<int>(g.size()) * 6, 28, g, pal::gold);
 
     if (menuPage_ == 0) {
-        const char* labels[5] = {"Item", "Status", "Simpan", "Audio", "Tutup"};
-        const char* desc[5] = {
+        const char* labels[6] = {"Item", "Status", "Jurnal", "Simpan", "Audio", "Tutup"};
+        const char* desc[6] = {
             "Gunakan ramuan dan eliksir.",
             "Lihat statistik dan misi.",
-            "Simpan kemajuan permainan.",
+            "Baca jurnal dan peta petualangan.",
+            "Simpan ke salah satu slot.",
             "Atur musik dan efek suara.",
             "Kembali menjelajah.",
         };
-        for (int i = 0; i < 5; ++i) {
-            int y = 50 + i * 20;
+        for (int i = 0; i < 6; ++i) {
+            int y = 48 + i * 19;
             bool sel = i == menuIndex_;
-            if (sel) fb.fillRect(30, y - 4, 110, 18, pal::uiPanelLight);
+            if (sel) fb.fillRect(30, y - 4, 110, 17, pal::uiPanelLight);
             fb.text(48, y, labels[i], sel ? pal::white : pal::uiTextDim);
             if (sel) cursorArrow(fb, 34, y + 1, pal::uiBorder);
         }
-        fb.fillRect(150, 50, 1, 100, 0xFF39405C);
+        fb.fillRect(150, 48, 1, 112, 0xFF39405C);
         int sel = menuIndex_;
         auto lines = wrapText(desc[sel], 130, 1);
-        int y = 56;
+        int y = 54;
         for (const auto& line : lines) {
             fb.text(160, y, line, pal::uiText);
             y += 12;
         }
-        fb.text(160, 96, "Batu Matahari:", pal::uiTextDim);
-        fb.text(160, 108, player_.hasSunstone ? "Ditemukan" : "Belum ditemukan",
-                player_.hasSunstone ? pal::gold : pal::uiTextDim);
-        fb.text(160, 128, "Misi:", pal::uiTextDim);
-        std::string quest = flags_.gameCompleted
-                                ? "Selesai."
-                                : (flags_.sunstoneFound
-                                       ? "Bawa relik ke Tetua Ardan."
-                                       : (flags_.questAccepted ? "Cari Batu Matahari di Gua Bayangan."
-                                                                : "Bicara dengan Tetua Ardan."));
-        auto ql = wrapText(quest, 120, 1);
-        int qy = 140;
+        fb.text(160, 88, "Misi Utama:", pal::uiTextDim);
+        auto ql = wrapText(questObjective(), 128, 1);
+        int qy = 99;
         for (const auto& line : ql) {
             fb.text(160, qy, line, pal::uiText);
             qy += 11;
         }
-        fb.text(28, 176, "Z: pilih   X: kembali", pal::uiTextDim);
+        fb.text(160, 136, "Sampingan:", pal::uiTextDim);
+        auto sl = wrapText(sideQuestObjective(), 128, 1);
+        int sy = 147;
+        for (const auto& line : sl) {
+            fb.text(160, sy, line, pal::uiText);
+            sy += 11;
+        }
+        fb.text(28, 180, "Z: pilih   X: kembali", pal::uiTextDim);
     } else if (menuPage_ == 1) {
         fb.text(28, 50, "ITEM", pal::uiTextDim);
         struct Row {
@@ -401,19 +443,23 @@ void Game::renderMenu(Framebuffer& fb) {
         fb.text(176, 142, "Emas", pal::uiTextDim);
         fb.text(212, 142, std::to_string(player_.gold), pal::gold);
 
-        std::string quest = flags_.gameCompleted
-                                ? "Selesai."
-                                : (flags_.sunstoneFound
-                                       ? "Bawa Batu Matahari ke Tetua Ardan."
-                                       : (flags_.questAccepted ? "Cari Batu Matahari di Gua Bayangan."
-                                                                : "Bicara dengan Tetua Ardan."));
-        auto ql = wrapText("Misi: " + quest, 250, 1);
-        int qy = 160;
+        auto ql = wrapText("Misi: " + questObjective(), 250, 1);
+        int qy = 156;
         for (const auto& line : ql) {
             fb.text(38, qy, line, pal::uiText);
             qy += 11;
         }
-        fb.text(28, 190, "X: kembali", pal::uiTextDim);
+        auto sl = wrapText("Sampingan: " + sideQuestObjective(), 250, 1);
+        int sy = 180;
+        for (const auto& line : sl) {
+            fb.text(38, sy, line, pal::uiTextDim);
+            sy += 11;
+        }
+        fb.text(28, 206, "X: kembali", pal::uiTextDim);
+    } else if (menuPage_ == 3) {
+        renderJournal(fb);
+    } else if (menuPage_ == 4) {
+        renderSaveSlots(fb);
     } else {
         fb.text(28, 50, "AUDIO", pal::uiTextDim);
         if (!audio_) {
@@ -445,12 +491,144 @@ void Game::renderMenu(Framebuffer& fb) {
         }
     }
 
-    if (menuMessageTimer_ > 0.0f && menuPage_ != 1) {
-        fb.text(28, 200, menuMessage_, pal::hpLight);
+    if (menuMessageTimer_ > 0.0f && menuPage_ == 4) {
+        auto lines = wrapText(menuMessage_, 260, 1);
+        int y = 205;
+        for (size_t i = 0; i < lines.size() && i < 2; ++i) {
+            fb.text(28, y, lines[i], pal::hpLight);
+            y += 10;
+        }
     }
-    if (state_ == GameState::Menu && menuMessageTimer_ > 0.0f && menuPage_ == 1) {
-        // already drawn in item page
+}
+
+void Game::renderJournal(Framebuffer& fb) {
+    fb.text(28, 50, "JURNAL", pal::uiTextDim);
+    fb.text(28, 62, "Misi Utama", pal::uiBorder);
+    auto ql = wrapText(questObjective(), 140, 1);
+    int qy = 73;
+    for (size_t i = 0; i < ql.size() && i < 4; ++i) {
+        fb.text(28, qy, ql[i], pal::uiText);
+        qy += 11;
     }
+    fb.text(28, 116, "Misi Sampingan", pal::uiBorder);
+    auto sl = wrapText(sideQuestObjective(), 140, 1);
+    int sy = 127;
+    for (size_t i = 0; i < sl.size() && i < 3; ++i) {
+        fb.text(28, sy, sl[i], pal::uiText);
+        sy += 11;
+    }
+    fb.text(28, 158, "Peta:", pal::uiTextDim);
+    int my = 169;
+    for (int i = 0; i < world_.count() && i < 4; ++i) {
+        bool seen = i < static_cast<int>(visited_.size()) && visited_[static_cast<size_t>(i)];
+        std::string line = std::string(seen ? "[x] " : "[ ] ") + world_.def(i).name;
+        fb.text(28, my, line, seen ? pal::uiText : pal::uiTextDim);
+        my += 9;
+    }
+    renderMinimap(fb, 180, 58, 112, 142);
+    fb.text(28, 208, "X: kembali", pal::uiTextDim);
+}
+
+void Game::renderSaveSlots(Framebuffer& fb) {
+    fb.text(28, 50, "SIMPAN", pal::uiTextDim);
+    auto tip = wrapText("Autosave ditulis otomatis. Pilih Slot 1-3 untuk menyimpan manual.",
+                        260, 1);
+    int ty = 62;
+    for (const auto& line : tip) {
+        fb.text(28, ty, line, pal::uiTextDim);
+        ty += 10;
+    }
+    for (int i = 0; i < 5; ++i) {
+        int y = 88 + i * 20;
+        bool sel = i == menuIndex_;
+        if (sel) fb.fillRect(26, y - 4, 268, 18, pal::uiPanelLight);
+        if (sel) cursorArrow(fb, 30, y + 1, pal::uiBorder);
+        if (i == 4) {
+            fb.text(48, y, "Kembali", sel ? pal::white : pal::uiTextDim);
+            continue;
+        }
+        int slot = i == 0 ? -1 : i - 1;
+        std::string label = slotLabel(slot);
+        if (saveSlot_ == slot) label += " *";
+        fb.text(48, y, label, sel ? pal::white : pal::uiTextDim);
+        fb.text(120, y, slotSummary(slot), sel ? pal::gold : pal::uiText);
+    }
+    fb.text(28, 196, "Z: pilih   X: kembali", pal::uiTextDim);
+}
+
+void Game::renderMinimap(Framebuffer& fb, int x, int y, int w, int h) {
+    panel(fb, x, y, w, h);
+    const MapDef& md = world_.def(map_);
+    if (md.w <= 0 || md.h <= 0) return;
+    int innerW = w - 8;
+    int innerH = h - 18;
+    if (innerW < 1 || innerH < 1) return;
+    int scale = std::min(innerW / md.w, innerH / md.h);
+    if (scale < 1) scale = 1;
+    int mw = md.w * scale, mh = md.h * scale;
+    int ox = x + (w - mw) / 2;
+    int oy = y + 13 + (innerH - mh) / 2;
+    fb.fillRect(ox - 1, oy - 1, mw + 2, mh + 2, 0xFF05060C);
+
+    for (int ty = 0; ty < md.h; ++ty) {
+        for (int tx = 0; tx < md.w; ++tx) {
+            uint32_t c = 0xFF2E5A34;
+            switch (md.at(tx, ty)) {
+                case Tile::Flower: c = 0xFF3E6A3C; break;
+                case Tile::TallGrass: c = 0xFF4A7A44; break;
+                case Tile::Path: c = 0xFF8A7A56; break;
+                case Tile::Sand: c = 0xFF9A8A62; break;
+                case Tile::Water: c = 0xFF2A4A8A; break;
+                case Tile::DeepWater: c = 0xFF1A2E62; break;
+                case Tile::Tree: c = 0xFF14381E; break;
+                case Tile::Rock: c = 0xFF3A3A44; break;
+                case Tile::Wall: c = 0xFF5A5260; break;
+                case Tile::Roof: c = 0xFF6A3A3A; break;
+                case Tile::Door: c = 0xFFB08A4A; break;
+                case Tile::Fence: c = 0xFF6A5A3A; break;
+                case Tile::Bridge: c = 0xFF7A5A32; break;
+                case Tile::CaveFloor: c = 0xFF4A4058; break;
+                case Tile::CaveWall: c = 0xFF22202E; break;
+                case Tile::Lava: c = 0xFFB04A2A; break;
+                case Tile::CaveEntrance: c = 0xFFD8B84A; break;
+                case Tile::RuinEntrance: c = 0xFFE8C858; break;
+                case Tile::Sign: c = 0xFF9A8A5A; break;
+                case Tile::Pillar: c = 0xFF6A6478; break;
+                case Tile::Void: c = 0xFF0A0C14; break;
+                case Tile::Grass: break;
+            }
+            if (scale == 1) {
+                fb.pixel(ox + tx, oy + ty, c);
+            } else {
+                fb.fillRect(ox + tx * scale, oy + ty * scale, scale, scale, c);
+            }
+        }
+    }
+
+    for (const Portal& p : md.portals) {
+        for (int yy = 0; yy < p.h; ++yy)
+            for (int xx = 0; xx < p.w; ++xx)
+                fb.fillRect(ox + (p.x + xx) * scale, oy + (p.y + yy) * scale,
+                            std::max(1, scale), std::max(1, scale), 0xFF66E0FF);
+    }
+    for (size_t i = 0; i < md.chests.size(); ++i) {
+        if (chestOpened_[static_cast<size_t>(map_)][i]) continue;
+        const ChestSpawn& c = md.chests[i];
+        fb.fillRect(ox + c.x * scale, oy + c.y * scale, std::max(1, scale),
+                    std::max(1, scale), pal::gold);
+    }
+    for (const NpcSpawn& n : md.npcs) {
+        if (npcHidden(n)) continue;
+        fb.fillRect(ox + n.x * scale, oy + n.y * scale, std::max(1, scale),
+                    std::max(1, scale), 0xFFFFA8C8);
+    }
+    if ((static_cast<int>(globalTime_ * 4.0f) & 1) == 0) {
+        fb.fillRect(ox + tileOfX(px_ + 8.0f) * scale, oy + tileOfY(py_ + 8.0f) * scale,
+                    std::max(2, scale), std::max(2, scale), pal::white);
+    }
+
+    std::string label = fb.textWidth(md.name) <= w - 8 ? md.name : "PETA";
+    fb.text(x + (w - fb.textWidth(label)) / 2, y + 3, label, pal::uiBorder);
 }
 
 void Game::renderShop(Framebuffer& fb) {

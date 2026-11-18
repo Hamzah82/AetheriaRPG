@@ -125,6 +125,9 @@ Look npcLook(NpcStyle style) {
             return {skin, 0xFFC08A4A, 0xFFD08A3A, 0xFFA86A28, 0xFF4A6AA8, 0xFF2A1C14, 0xFFF0D8A0};
         case NpcStyle::Farmer:
             return {skin, 0xFF6B4326, 0xFF8A6A3A, 0xFF6A4E28, 0xFF5A4A2A, 0xFF2A1C14, 0xFFD8B878};
+        case NpcStyle::Guardian:
+            return {0xFFE8D8B0, 0xFFE2C275, 0xFFC89A3A, 0xFF8A6420, 0xFF5A4218,
+                    0xFF3A2A10, 0xFFFFE9A8};
         default:
             return {skin, 0xFF523218, 0xFF4A8A8A, 0xFF2E6666, 0xFF3A3A5A, 0xFF2A1C14, 0xFFE2C275};
     }
@@ -431,6 +434,25 @@ void tile(Framebuffer& fb, Tile t, int px, int py, int tx, int ty, float time) {
             fb.fillRect(px + 4, py + 12, 8, 1, 0xFF1A1524);
             break;
         }
+        case Tile::RuinEntrance: {
+            fb.fillRect(px, py, 16, 16, caveWallDark);
+            // Stone frame with a carved arch.
+            fb.fillRect(px + 1, py + 2, 3, 14, stoneDark);
+            fb.fillRect(px + 12, py + 2, 3, 14, stoneDark);
+            fb.fillRect(px + 1, py + 1, 14, 3, stone);
+            fb.fillRect(px + 3, py + 2, 10, 2, 0xFFB0A888);
+            fb.fillEllipse(px + 8, py + 10, 5, 5, 0xFF0A0810);
+            fb.fillRect(px + 3, py + 10, 10, 6, 0xFF0A0810);
+            // Faint sun rune above the doorway.
+            float pulse = 0.5f + 0.5f * std::sin(time * 2.4f + tx * 0.5f);
+            uint32_t rune = withAlpha(0xFFFFD87A, 130 + static_cast<int>(pulse * 100.0f));
+            fb.fillRect(px + 7, py + 1, 2, 1, rune);
+            fb.fillRect(px + 6, py + 2, 4, 1, rune);
+            fb.fillRect(px + 7, py + 3, 2, 1, rune);
+            fb.pixel(px + 4, py + 13, withAlpha(gold, 120));
+            fb.pixel(px + 11, py + 13, withAlpha(gold, 120));
+            break;
+        }
         case Tile::Sign: {
             grassBase(fb, px, py, tx, ty);
             fb.fillRect(px + 7, py + 7, 2, 8, trunk);
@@ -475,8 +497,18 @@ void npc(Framebuffer& fb, int px, int py, NpcStyle style, int dir, float time) {
         wardenWorld(fb, px, py, time);
         return;
     }
+    bool guardian = style == NpcStyle::Guardian;
     humanoid(fb, px, py, 1, dir, 0.0f, false, L, style == NpcStyle::Kid,
-             style == NpcStyle::Guard, style == NpcStyle::Innkeeper);
+             style == NpcStyle::Guard || guardian, style == NpcStyle::Innkeeper);
+    if (guardian) {
+        // Gilded aura and a ceremonial blade.
+        float pulse = 0.5f + 0.5f * std::sin(time * 2.2f);
+        fb.fillEllipseA(px + 8, py + 8, 9, 9, 0xFFFFD87A, 18 + static_cast<int>(pulse * 18));
+        fb.vline(px + 14, py + 3, 11, 0xFFE8D8A0);
+        fb.fillRect(px + 13, py + 2, 3, 2, 0xFFFFE9A8);
+        fb.pixel(px + 14, py + 14, 0xFFFFFFFF);
+        fb.pixel(px + 4, py + 4, withAlpha(0xFFFFE9A8, 160 + static_cast<int>(pulse * 80)));
+    }
 
     if (style == NpcStyle::Elder) {
         fb.vline(px + 14, py + 5, 10, trunk);
@@ -603,6 +635,73 @@ void enemy(Framebuffer& fb, EnemyType type, int cx, int cy, float time, bool hur
             wardenCore(fb, cx, cy - 16, time, 62);
             if (hurt) fb.fillEllipseA(cx, cy, 34, 40, white, 90);
             break;
+        case EnemyType::Guardian: {
+            // Fallen guardian of the Dawn Ruins: gilded plate, tower shield,
+            // and a sunblade that never stopped burning.
+            shadow(fb, cx, cy + 20, 18, 4, 110);
+            float pulse = 0.5f + 0.5f * std::sin(time * 2.4f);
+            uint32_t goldArmor = 0xFFD8A83A, goldLight = 0xFFFFE08A, goldDark = 0xFF8A6420;
+            uint32_t plate = 0xFFB08A48, cape = 0xFF7A2E2E;
+            fb.fillEllipseA(cx, cy + 4, 30, 32, 0xFFFFD87A, 14 + static_cast<int>(pulse * 12));
+
+            // Cape.
+            tri(fb, cx - 14, cy - 14, cx - 24, cy + 18, cx + 2, cy + 18, cape);
+            tri(fb, cx + 14, cy - 14, cx + 24, cy + 18, cx - 2, cy + 18, 0xFF5A2020);
+
+            // Legs and boots.
+            fb.fillRect(cx - 10, cy + 8, 7, 12, plate);
+            fb.fillRect(cx + 3, cy + 8, 7, 12, plate);
+            fb.fillRect(cx - 11, cy + 18, 9, 4, goldDark);
+            fb.fillRect(cx + 2, cy + 18, 9, 4, goldDark);
+
+            // Torso plate.
+            fb.fillRect(cx - 15, cy - 14, 30, 24, goldDark);
+            fb.fillRect(cx - 13, cy - 12, 26, 20, goldArmor);
+            fb.fillRect(cx - 13, cy - 12, 26, 1, goldLight);
+            fb.fillRect(cx - 4, cy - 9, 8, 10, goldLight);
+            fb.fillCircle(cx, cy - 5, 3, 0xFFFFF0B0);
+            fb.fillCircle(cx, cy - 5, 1, white);
+            fb.fillRect(cx - 13, cy + 4, 26, 2, goldDark);
+
+            // Pauldrons.
+            fb.fillEllipse(cx - 16, cy - 10, 7, 5, goldDark);
+            fb.fillEllipse(cx + 16, cy - 10, 7, 5, goldDark);
+            fb.fillEllipse(cx - 16, cy - 11, 6, 4, goldArmor);
+            fb.fillEllipse(cx + 16, cy - 11, 6, 4, goldArmor);
+
+            // Helmet with plume.
+            fb.fillCircle(cx, cy - 22, 10, goldDark);
+            fb.fillCircle(cx, cy - 22, 9, goldArmor);
+            fb.fillRect(cx - 7, cy - 25, 14, 4, 0xFF2A2010);
+            fb.fillRect(cx - 6, cy - 24, 5, 2, 0xFFFFE08A);
+            fb.fillRect(cx + 2, cy - 24, 5, 2, 0xFFFFE08A);
+            fb.fillRect(cx - 1, cy - 21, 2, 4, goldLight);
+            tri(fb, cx - 2, cy - 32, cx + 10, cy - 40, cx + 3, cy - 30, 0xFFB03C3C);
+            tri(fb, cx - 2, cy - 32, cx + 7, cy - 38, cx + 2, cy - 30, 0xFFE86A4A);
+
+            // Tower shield.
+            fb.fillRect(cx - 30, cy - 12, 12, 22, goldDark);
+            fb.fillRect(cx - 29, cy - 11, 10, 20, plate);
+            fb.fillRect(cx - 27, cy - 8, 6, 14, 0xFFC8A858);
+            fb.fillRect(cx - 25, cy - 5, 2, 8, 0xFFFFE9A8);
+            fb.fillRect(cx - 27, cy - 1, 6, 2, 0xFFFFE9A8);
+
+            // Sunblade.
+            int sway = static_cast<int>(std::sin(time * 1.8f) * 1.5f);
+            fb.line(cx + 26 + sway, cy - 20, cx + 30 + sway, cy + 14, 0xFF8A6A3A);
+            fb.fillRect(cx + 27 + sway, cy - 34, 3, 16, 0xFFFFE9A8);
+            fb.fillRect(cx + 28 + sway, cy - 36, 1, 20, white);
+            fb.fillRect(cx + 23 + sway, cy - 20, 9, 2, goldDark);
+            fb.fillCircle(cx + 28 + sway, cy - 36, 2, withAlpha(0xFFFFD87A, 170));
+            for (int i = 0; i < 5; ++i) {
+                float a = time * 1.6f + i * 1.25f;
+                int mx = cx + static_cast<int>(std::cos(a) * 34.0f);
+                int my = cy + static_cast<int>(std::sin(a * 1.4f) * 30.0f);
+                fb.pixel(mx, my, (i & 1) ? 0xFFFFE9A8 : 0xFFFFC84A);
+            }
+            if (hurt) fb.fillEllipseA(cx, cy, 30, 36, white, 120);
+            break;
+        }
     }
 }
 

@@ -4,25 +4,38 @@ RPG 2D berbahasa Indonesia yang ditulis dengan C++17 dan X11. Seluruh grafis, fo
 efek, musik, dan suara dibuat secara prosedural; tidak ada berkas aset eksternal
 dan tidak ada dependensi SFML/SDL.
 
-Pemain menjelajahi Desa Elmwood, Padang Aetheria, dan Gua Bayangan untuk merebut
-kembali Batu Matahari dari Warden Bayangan.
+Pemain menjelajahi Desa Elmwood, Padang Aetheria, Gua Bayangan, dan Reruntuhan
+Fajar untuk merebut kembali Batu Matahari dari Warden Bayangan, lalu menghadapi
+Penjaga Fajar di reruntuhan kuno.
 
 ## Fitur
 
-- Tiga peta yang saling terhubung lewat portal, lengkap dengan NPC, peti harta,
-  papan petunjuk, dan bangunan.
-- Pertarungan turn-based: Serang, Sihir (Bola Api, Petir, Pulihkan), Item, dan Kabur.
-- Monster Slime, Kelelawar, dan Serigala dengan kelemahan elemen masing-masing.
-- Sistem level, XP, emas, senjata, armor, dan ramuan.
-- Toko, penginapan, menu status, serta simpan/muat permainan.
-- Musik chiptune dan efek suara prosedural yang mengikuti state permainan, dengan
-  halaman **Menu > Audio** untuk mengatur volume musik, volume efek, dan bisukan.
-- Boss Warden Bayangan dengan pertarungan khusus, dialog, dan ending.
+- Empat peta yang saling terhubung lewat portal, lengkap dengan NPC, peti harta,
+  papan petunjuk, bangunan, dan ruang bos.
+- Pertarungan turn-based: Serang, Sihir (Bola Api, Petir, Pulihkan), Item, dan
+  Kabur. Monster Slime, Kelelawar, Serigala, dan Rangka muncul sesuai wilayah.
+- Dua bos: **Warden Bayangan** dan **Penjaga Fajar**, masing-masing dengan
+  dialog dan pertarungan khusus.
+- Misi utama serta misi sampingan **Ramuan untuk Ruslan** (3 Ramuan untuk 120
+  emas dan satu Eliksir).
+- Tiga slot simpan manual ditambah **autosave** di titik-titik cerita. Layar
+  judul memuat autosave, Slot 1-3, atau kembali tanpa memuat apa pun.
+- Jurnal berisi tujuan misi utama/sampingan dan daftar peta yang sudah
+  dikunjungi, ditambah minimap langsung di HUD dan halaman jurnal.
+- Perlengkapan tier-3 di Reruntuhan Fajar: **Pedang Fajar** dan **Perisai
+  Fajar**.
+- Musik chiptune dan efek suara prosedural, dengan **crossfade** saat lagu
+  berganti dan jeda otomatis saat jendela kehilangan fokus.
+- Halaman **Menu > Audio** untuk mengatur volume musik, volume efek, dan
+  bisukan; pengaturan disimpan ke `settings.cfg`.
 - Renderer software 320×240 yang diperbesar ke jendela X11 (bawaan 3× menjadi
   960×720), sehingga tampilan tetap tajam dan ringan.
 - Mode layar penuh dengan penskalaan integer dan bilah hitam; tekan `F11` atau
-  `Alt+Enter` untuk beralih.
-- Mode `--headless` dan `--screenshot` untuk pengujian tanpa jendela.
+  `Alt+Enter` untuk beralih. Pilihan layar penuh ikut tersimpan.
+- Ikon jendela dan launcher desktop SVG yang dipasang otomatis oleh
+  `install.sh`.
+- Mode `--headless` dan `--screenshot` untuk pengujian tanpa jendela, serta
+  workflow CI GitHub Actions.
 
 ## Kebutuhan
 
@@ -61,18 +74,27 @@ Skrip akan:
 3. Mengkloning sumber dari GitHub ke `~/.aetheria/source` bila belum ada, atau
    memperbaruinya dengan `git pull --ff-only` saat pemasangan ulang.
 4. Membangun game dari salinan sumber itu dan menjalankan uji asap `--headless`.
-5. Memasang biner, peluncur, dan launcher desktop ke
-   `~/.local/share/applications/aetheria.desktop`.
+5. Memasang biner, peluncur, launcher desktop, dan ikon SVG ke
+   `~/.local/share/applications/aetheria.desktop` serta
+   `~/.local/share/icons/hicolor/scalable/apps/aetheria.svg`.
 
 Semua kebutuhan game disatukan dalam satu folder:
 
 ```text
 ~/.aetheria/
-  rpgcpp        biner game
-  aetheria      peluncur; menjalankan game dari folder ini
-  savegame.dat  dibuat saat pertama kali menyimpan
-  source/       salinan Git sumber game untuk menu Perbarui Game
+  rpgcpp                 biner game
+  aetheria               peluncur; menjalankan game dari folder ini
+  settings.cfg           pengaturan audio dan layar penuh
+  savegame.dat           Slot 1 (dibuat saat menyimpan)
+  savegame-2.dat         Slot 2
+  savegame-3.dat         Slot 3
+  savegame-auto.dat      autosave
+  source/                salinan Git sumber game untuk menu Perbarui Game
 ```
+
+Ikon aplikasi dipasang ke
+`~/.local/share/icons/hicolor/scalable/apps/aetheria.svg`, dan launcher desktop
+memakai `Icon=aetheria` sehingga tema ikon dapat menemukannya.
 
 Opsi yang tersedia:
 
@@ -99,15 +121,18 @@ Contoh:
 ```
 
 Jalankan game lewat menu aplikasi atau `~/.aetheria/aetheria`. Skrip uninstall
-tidak menghapus `savegame.dat` maupun salinan sumber di `~/.aetheria/source`;
-folder game hanya dihapus bila sudah kosong. Instalasi lama di
-`~/.local/bin/rpgcpp` dibersihkan otomatis. Berkas simpanan lama yang berada di
+tidak menghapus berkas `savegame*.dat`, `settings.cfg`, maupun salinan sumber di
+`~/.aetheria/source`; folder game hanya dihapus bila sudah kosong. Instalasi lama
+di `~/.local/bin/rpgcpp` dibersihkan otomatis. Berkas simpanan lama yang berada di
 folder lain perlu dipindahkan manual ke `~/.aetheria/savegame.dat`.
 
 ## Perbarui Game dari Judul
 
 Layar judul memiliki empat pilihan: **Mulai Baru**, **Lanjutkan**,
-**Perbarui Game**, dan **Keluar**. Memilih **Perbarui Game** akan:
+**Perbarui Game**, dan **Keluar**. **Mulai Baru** meminta konfirmasi bila sudah
+ada simpanan (pilihan bawaan **Batal**), sedangkan **Lanjutkan** membuka halaman
+muat berisi **Otomatis**, **Slot 1-3**, dan **Kembali**. Memilih **Perbarui
+Game** akan:
 
 1. Menjalankan `git pull --ff-only` pada salinan sumber
    `~/.aetheria/source`.
@@ -161,19 +186,31 @@ Saat dialog, tombol konfirmasi atau batal akan mempercepat teks lalu melanjutkan
 ke halaman berikutnya. Di dalam pertarungan, gunakan tombol arah untuk memilih
 perintah dan `X` untuk kembali dari submenu Sihir/Item. Di halaman **Audio**,
 tombol kiri/kanan mengubah volume atau pilihan, `Z` memilih, dan `X` kembali.
+Menu menjelajah memakai tombol arah untuk berpindah baris; **Jurnal** menampilkan
+misi dan peta, sedangkan **Simpan** meminta konfirmasi bila slot sudah terisi.
 
 ## Alur Permainan
 
 1. Mulai permainan baru dari judul. Intro narator akan memperkenalkan Lembah
    Aetheria.
-2. Temui **Tetua Ardan** di Desa Elmwood untuk menerima quest.
-3. Keluar desa melalui jalan di sisi selatan menuju **Padang Aetheria**.
-4. Monster muncul secara acak: di rumput tinggi Padang Aetheria dan di lantai
-   Gua Bayangan. Peti harta tersebar di beberapa lokasi.
-5. Masuk ke **Gua Bayangan** di timur laut padang (melewati jembatan tua).
-6. Kalahkan **Warden Bayangan** di ruang paling dalam untuk mendapatkan
-   **Batu Matahari**.
-7. Kembali ke Tetua Ardan untuk menyelesaikan permainan dan melihat ending.
+2. Temui **Tetua Ardan** di Desa Elmwood untuk menerima quest. Autosave ditulis
+   saat quest diterima.
+3. Opsional: temui **Petani Ruslan** di desa dan bawa 3 Ramuan untuk misi
+   sampingan.
+4. Keluar desa melalui jalan di sisi selatan menuju **Padang Aetheria**.
+5. Monster muncul secara acak di rumput tinggi Padang Aetheria, lantai Gua
+   Bayangan, dan lantai Reruntuhan Fajar. Peti harta tersebar di beberapa
+   lokasi.
+6. Masuk ke **Gua Bayangan** di timur laut padang (melewati jembatan tua).
+7. Kalahkan **Warden Bayangan** di ruang paling dalam untuk mendapatkan
+   **Batu Matahari**. Autosave ditulis setelah kemenangan.
+8. Dengan Batu Matahari, portal di balik tembok timur laut Padang Aetheria
+   terbuka menuju **Reruntuhan Fajar**. Kalahkan **Penjaga Fajar**, ambil
+   **Pedang Fajar** dan **Perisai Fajar**, lalu selesaikan misi sampingan bila
+   belum.
+9. Kembali ke Tetua Ardan untuk menyelesaikan permainan dan melihat ending.
+   Setelah ending, **Lanjutkan** dapat memuat autosave untuk menjelajah sisa
+   reruntuhan.
 
 Desa Elmwood aman dari pertarungan acak. Penginapan memulihkan HP dan MP penuh
 dengan biaya 10 emas (hanya jika pemain cukup lelah dan memiliki emas).
@@ -206,32 +243,55 @@ Toko Rilla di Desa Elmwood menjual:
 Item yang lebih kuat hanya dapat dibeli sekali dan tidak menurunkan kualitas
 perlengkapan yang sudah dimiliki.
 
+Di peti Reruntuhan Fajar terdapat perlengkapan tier-3: **Pedang Fajar** (+13
+serangan) dan **Perisai Fajar** (+11 pertahanan). Keduanya tidak dijual di toko;
+peti cadangan dapat dijual seharga 200 emas bila perlengkapan itu sudah dipakai.
+
 ## Musik dan Efek Suara
 
 Seluruh audio disintesis saat program berjalan dengan gelombang kotak, segitiga,
 sinus, gergaji, dan noise; tidak ada berkas musik atau suara yang dimuat.
 
 - Tujuh lagu latar: judul, desa, padang, gua, pertarungan, boss, dan ending.
-  Lagu berganti otomatis mengikuti state permainan dan peta.
+  Lagu berganti otomatis mengikuti state permainan dan peta, dengan crossfade
+  singkat agar peralihan tidak kasar.
 - Efek suara untuk langkah, menu, peti, koin, ramuan, serangan, serangan kritis,
   luka, sihir api/petir, pulih, kabur, menang, kalah, naik level, simpan, portal,
   dan auman boss.
 - **Menu > Audio** menyediakan pengaturan volume musik, volume efek suara, dan
-  bisukan. Pengaturan berlaku langsung tanpa perlu menyimpan permainan.
+  bisukan. Pengaturan berlaku langsung dan disimpan ke `settings.cfg` saat
+  berubah atau saat game ditutup.
+- Saat jendela kehilangan fokus, simulasi dan audio dijeda; ketika fokus
+  kembali, permainan berlanjut tanpa lonjakan waktu.
 - Audio bersifat opsional. Jika `libasound.so.2` atau perangkat suara tidak
   tersedia, game menampilkan pesan dan berjalan tanpa suara.
 - Gunakan `--no-audio` untuk mematikan audio sepenuhnya sejak awal.
 
 ## Simpan dan Muat
 
-- Menu utama saat menjelajah memiliki pilihan **Simpan**.
-- Pada instalasi, berkas simpanan berada di `~/.aetheria/savegame.dat`, di
-  sebelah biner game.
-- Saat dijalankan langsung dari checkout sumber, `savegame.dat` berada di
+- Menu saat menjelajah memiliki enam pilihan: **Item**, **Status**, **Jurnal**,
+  **Simpan**, **Audio**, dan **Tutup**.
+- Halaman **Simpan** menampilkan autosave dan tiga slot manual. Menimpa slot
+  yang sudah terisi memerlukan konfirmasi kedua (`Z` dua kali).
+- Pada instalasi, berkas simpanan berada di `~/.aetheria/`:
+  `savegame.dat` (Slot 1), `savegame-2.dat` (Slot 2), `savegame-3.dat` (Slot 3),
+  dan `savegame-auto.dat` (autosave).
+- Autosave ditulis otomatis saat quest utama diterima, setelah Warden dan
+  Penjaga Fajar dikalahkan, saat misi Petani Ruslan selesai, dan saat Batu
+  Matahari diserahkan ke Tetua.
+- **Lanjutkan** pada layar judul membuka halaman muat berisi **Otomatis**,
+  **Slot 1-3**, dan **Kembali**; Slot 1 dipilih secara bawaan.
+- **Mulai Baru** meminta konfirmasi bila sudah ada simpanan. Pilihan bawaan
+  adalah **Batal** agar simpanan tidak terhapus tanpa sengaja.
+- Saat dijalankan langsung dari checkout sumber, berkas simpanan berada di
   direktori kerja.
-- Pilihan **Lanjutkan** pada layar judul akan memuat berkas tersebut.
-- Lokasi berkas dapat diubah dengan `--save PATH`.
+- Lokasi dasar berkas dapat diubah dengan `--save PATH`; slot mengikuti awalan
+  yang sama.
 - Format simpanan berupa teks dan ditulis secara atomik melalui berkas sementara.
+  Berkas versi lama (versi 1) tetap dapat dimuat.
+- Pengaturan audio dan layar penuh disimpan terpisah di `settings.cfg`, sehingga
+  tidak ikut berubah saat memuat slot lain atau memulai permainan baru. Gunakan
+  `--settings PATH` untuk memilih lokasi lain.
 
 ## Opsi Command Line
 
@@ -241,6 +301,7 @@ sinus, gergaji, dan noise; tidak ada berkas musik atau suara yang dimuat.
   --scale N        perbesaran jendela (1-6, bawaan 3)
   --seed N         benih acak
   --save PATH      lokasi berkas simpanan
+  --settings PATH  lokasi berkas pengaturan
   --headless       uji jalan tanpa jendela
   --frames N       jumlah frame uji headless
   --no-audio       jalankan tanpa musik dan efek suara
@@ -254,13 +315,16 @@ Contoh:
 ```bash
 ./rpgcpp --scale 4
 ./rpgcpp --no-audio
+./rpgcpp --settings /tmp/aetheria.cfg
 ./rpgcpp --headless --frames 1200
 ./rpgcpp --screenshot /tmp/opencode/shots
 ```
 
-Mode `--screenshot` memakai berkas simpanan terpisah (`PATH.shot`) agar tidak
-mengganggu simpanan permainan biasa. Hasilnya adalah PNG 960×720 dari berbagai
-kondisi permainan.
+Mode `--screenshot` memakai berkas simpanan terpisah (`PATH.shot` beserta slot
+turunannya) agar tidak mengganggu simpanan permainan biasa. Hasilnya adalah 19
+PNG 960×720 dari layar judul, desa, dialog, padang, gua, pertarungan, menu,
+jurnal, simpan, audio, toko, game over, reruntuhan, bos Penjaga Fajar, dan
+ending.
 
 ## Struktur Proyek
 
@@ -275,13 +339,17 @@ src/audio.h/.cpp    pemutaran ALSA runtime, pencampuran, volume
 src/battle.h/.cpp   logika dan tampilan pertarungan
 src/game.h          antarmuka Game dan hook pengujian
 src/game.cpp        state machine, dialog, quest, toko, simpan/muat
-src/game_render.cpp tampilan judul, menu, toko, status, ending
+src/game_render.cpp tampilan judul, menu, jurnal, minimap, toko, status, ending
+src/settings.h/.cpp pengaturan audio/layar penuh yang tersimpan
+src/savegame.h/.cpp penamaan slot, metadata, dan ringkasan simpanan
 src/updater.h/.cpp  git pull dan build ulang dari menu judul
-src/platform.h/.cpp jendela X11, input, presentasi piksel
+src/platform.h/.cpp jendela X11, input, fokus, ikon, presentasi piksel
 src/main.cpp        CLI, loop utama, headless, screenshot
+assets/aetheria.svg ikon aplikasi untuk launcher desktop
 tests/test_main.cpp rangkaian tes regresi
 Makefile            target build, test, run, shots, clean
 install.sh          kloning sumber, build, instalasi, uninstall
+.github/workflows/ci.yml  build, tes, dan uji asap headless di GitHub Actions
 ```
 
 ## Pengujian
@@ -291,12 +359,19 @@ make test
 ```
 
 Tes mencakup RNG dan matematika dasar, statistik pemain, leveling, konektivitas
-peta (BFS), collision, portal, peti, dialog, toko, penginapan, seluruh alur
-pertarungan, simpan/muat (termasuk berkas rusak), menu, game over, ending,
-determinisme render, ekspor PNG, pemetaan warna X11, render setiap state
-permainan, serta sintesis audio (durasi, puncak, loop mulus, determinisme) dan
-pengaturan volume/bisukan tanpa perangkat suara. Tes tidak pernah membuka
-perangkat audio sehingga tetap senyap dan deterministik.
+peta (BFS) untuk empat peta, collision, portal dan segel Batu Matahari, peti,
+dialog, toko, penginapan, seluruh alur pertarungan termasuk Penjaga Fajar, misi
+Petani Ruslan, quest utama, simpan/muat (termasuk tiga slot, autosave, berkas
+rusak, dan kompatibilitas versi 1), pengaturan audio/layar penuh, layar judul
+beserta konfirmasi dan halaman muat, menu enam baris, jurnal, minimap, game over,
+ending, determinisme render, ikon jendela, ekspor PNG, pemetaan warna X11, render
+setiap state permainan, serta sintesis audio (durasi, puncak, loop mulus,
+determinisme) dan pengaturan volume/bisukan/jeda tanpa perangkat suara. Tes tidak
+pernah membuka perangkat audio sehingga tetap senyap dan deterministik.
+
+Workflow `.github/workflows/ci.yml` menjalankan build, `make test`, uji asap
+`--headless --frames 1200`, dan uji tangkapan layar pada setiap push ke `main`
+serta pull request.
 
 Uji asap tanpa jendela:
 
@@ -328,6 +403,12 @@ headless ok: frames=1200 state=1 map=0 hp=42 checksum=...
   tidak memerlukan header ALSA dan game tetap bisa dijalankan tanpa audio.
 - Musik dan efek suara dibangkitkan secara deterministik dari not dan parameter
   tetap; hasilnya sama pada setiap mesin dan dapat diuji tanpa perangkat suara.
+- Perpindahan lagu memakai dua trek dengan fade 0,35 detik. Saat jendela tidak
+  fokus, loop utama berhenti memperbarui simulasi dan audio dijeda dengan
+  `Audio::setPaused`, lalu melanjutkan tanpa melompat karena akumulasi waktu
+  tetap diperbarui.
+- Ikon jendela digambar secara prosedural sebagai data ARGB untuk `_NET_WM_ICON`;
+  ikon launcher desktop memakai SVG terpisah agar tetap tajam di berbagai ukuran.
 
 ## Pemecahan Masalah
 
@@ -343,5 +424,12 @@ headless ok: frames=1200 state=1 map=0 hp=42 checksum=...
   cek pesan `audio:` saat mulai, lalu buka **Menu > Audio** untuk memastikan
   volume tidak nol dan bisukan tidak aktif. Gunakan `--no-audio` jika ingin
   memastikan mode senyap.
-- **Ingin mulai dari awal**: hapus `savegame.dat` atau jalankan dengan
-  `--save` ke lokasi berkas baru.
+- **Ingin mulai dari awal**: mulai **Mulai Baru** dari judul (konfirmasi muncul
+  bila sudah ada simpanan), atau hapus `savegame*.dat` di folder game.
+- **Pengaturan tidak berubah**: periksa `settings.cfg` di folder game
+  (`~/.aetheria/settings.cfg` pada instalasi) dan pastikan `--settings` tidak
+  diarahkan ke berkas lain.
+- **Ikon launcher tidak muncul**: pastikan
+  `~/.local/share/icons/hicolor/scalable/apps/aetheria.svg` ada, lalu jalankan
+  `gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor` atau masuk ulang ke
+  sesi desktop.

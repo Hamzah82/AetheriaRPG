@@ -15,8 +15,9 @@ const EnemyInfo ENEMIES[] = {
     {EnemyType::Wolf, "Serigala", 3, 34, 10, 3, 20, 15, 1},
     {EnemyType::Skeleton, "Tengkorak", 4, 46, 13, 6, 32, 26, 2},
     {EnemyType::Warden, "Warden Bayangan", 8, 180, 18, 8, 150, 250, 0},
+    {EnemyType::Guardian, "Penjaga Fajar", 10, 260, 22, 10, 220, 400, 2},
 };
-constexpr int ENEMY_COUNT = 5;
+constexpr int ENEMY_COUNT = 6;
 
 const int ENEMY_X = 214;
 const int ENEMY_Y = 124;
@@ -285,7 +286,8 @@ void Battle::enemyTurn(Player& p) {
     bool special = false;
     if (boss_ && turnCount_ % 3 == 0) {
         dmg = damageRoll(rng_, info_.atk * 3 - p.def(), 3);
-        verb = "melancarkan Hantaman Bayangan";
+        verb = info_.type == EnemyType::Guardian ? "melepaskan Tebasan Fajar"
+                                                 : "melancarkan Hantaman Bayangan";
         special = true;
     } else if (!boss_ && (info_.type == EnemyType::Wolf || info_.type == EnemyType::Skeleton) &&
                rng_.chance(0.25f)) {

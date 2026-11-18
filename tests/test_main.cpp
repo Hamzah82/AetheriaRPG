@@ -20,6 +20,8 @@
 #include "gfx.h"
 #include "platform.h"
 #include "player.h"
+#include "savegame.h"
+#include "settings.h"
 #include "updater.h"
 #include "world.h"
 
@@ -59,11 +61,19 @@ void checkNearImpl(float a, float b, float tol, const char* expr, const char* fi
 }
 #define CHECK_NEAR(a, b) checkNearImpl((a), (b), 0.01f, #a " ~= " #b, __FILE__, __LINE__)
 
+void removeSaveFiles(const std::string& base) {
+    for (int slot = -1; slot <= 2; ++slot) {
+        std::string path = slotPath(base, slot);
+        std::remove(path.c_str());
+        std::remove((path + ".tmp").c_str());
+    }
+}
+
 std::string tmpPath(const char* name) {
     std::error_code ec;
     std::filesystem::create_directories("/tmp/opencode", ec);
     std::string p = std::string("/tmp/opencode/") + name;
-    std::remove(p.c_str());
+    removeSaveFiles(p);
     std::remove((p + ".tmp").c_str());
     return p;
 }
@@ -158,7 +168,7 @@ void testCore() {
     CHECK_EQ((mix(0x00000000u, 0xFFFFFFFFu, 0.5f) >> 16) & 255u, 127u);
     CHECK_EQ(hash2(4, 9), hash2(4, 9));
     CHECK(hash2(4, 9) != hash2(9, 4));
-    CHECK_EQ(static_cast<int>(static_cast<uint8_t>(Tile::Void)), 20);
+    CHECK_EQ(static_cast<int>(static_cast<uint8_t>(Tile::Void)), 21);
 }
 
 // ---------------------------------------------------------------- player
@@ -195,10 +205,16 @@ void testPlayer() {
     CHECK_EQ(q.atk(), 14);
     q.weapon = 2;
     CHECK_EQ(q.atk(), 18);
+    q.weapon = 3;
+    CHECK_EQ(q.atk(), 23);
     q.armor = 1;
     CHECK_EQ(q.def(), 11);
     q.armor = 2;
     CHECK_EQ(q.def(), 15);
+    q.armor = 3;
+    CHECK_EQ(q.def(), 19);
+    CHECK(std::string(WEAPONS[3].name) == "Pedang Fajar");
+    CHECK(std::string(ARMORS[3].name) == "Perisai Fajar");
 
     Player h;
     CHECK_EQ(h.potions, 2);
@@ -228,10 +244,11 @@ void testPlayer() {
 
 void testWorld() {
     World w;
-    CHECK_EQ(w.count(), 3);
+    CHECK_EQ(w.count(), 4);
     CHECK_EQ(w.indexOf("village"), 0);
     CHECK_EQ(w.indexOf("overworld"), 1);
     CHECK_EQ(w.indexOf("cave"), 2);
+    CHECK_EQ(w.indexOf("ruins"), 3);
     CHECK_EQ(w.indexOf("missing"), -1);
 
     CHECK_EQ(static_cast<int>(w.tile(0, 2, 13)), static_cast<int>(Tile::Water));
@@ -274,6 +291,27 @@ void testWorld() {
         CHECK_EQ(caveExit->spawnY, 7);
     }
 
+    // The ruins portal stays sealed until the Sunstone is found.
+    const Portal* ruinSeal = w.portalAt(1, 36, 6);
+    CHECK(ruinSeal != nullptr);
+    if (ruinSeal) {
+        CHECK_EQ(ruinSeal->targetMap, 3);
+        CHECK_EQ(ruinSeal->spawnX, 17);
+        CHECK_EQ(ruinSeal->spawnY, 24);
+        CHECK(ruinSeal->requiresSunstone);
+    }
+    const Portal* ruinExit = w.portalAt(3, 17, 26);
+    CHECK(ruinExit != nullptr);
+    if (ruinExit) {
+        CHECK_EQ(ruinExit->targetMap, 1);
+        CHECK_EQ(ruinExit->spawnX, 36);
+        CHECK_EQ(ruinExit->spawnY, 7);
+    }
+    CHECK(w.encounter(3, 17, 18));
+    CHECK(!w.encounter(3, 17, 26));
+    CHECK(w.chestAt(3, 4, 11) != nullptr);
+    CHECK(w.chestAt(3, 30, 11) != nullptr);
+
     const NpcSpawn* elder = w.npcAt(0, 12, 6);
     CHECK(elder != nullptr);
     if (elder) {
@@ -288,8 +326,8 @@ void testWorld() {
     }
     CHECK(w.chestAt(2, 23, 5) != nullptr);
 
-    const char* ids[3] = {"village", "overworld", "cave"};
-    for (int i = 0; i < 3; ++i) {
+    const char* ids[4] = {"village", "overworld", "cave", "ruins"};
+    for (int i = 0; i < 4; ++i) {
         const MapDef& m = w.def(i);
         CHECK(m.id == ids[i]);
         CHECK(!m.name.empty());
@@ -332,8 +370,8 @@ void testWorld() {
     }
 
     // Every portal, NPC and chest must be reachable from the map's arrival point.
-    const int arrival[3][2] = {{14, 18}, {5, 27}, {16, 23}};
-    for (int i = 0; i < 3; ++i) {
+    const int arrival[4][2] = {{14, 18}, {5, 27}, {16, 23}, {17, 24}};
+    for (int i = 0; i < 4; ++i) {
         const MapDef& m = w.def(i);
         int ax = arrival[i][0], ay = arrival[i][1];
         auto seen = reachableFrom(w, i, ax, ay);
@@ -393,6 +431,11 @@ void testSaveLoad() {
     f.gameCompleted = false;
     f.metElder = true;
     f.introSeen = true;
+    f.herbQuestAccepted = true;
+    f.herbQuestDone = true;
+    f.ruinsCleared = true;
+    g.debugWarp(3, 17, 24);
+    g.debugWarp(1, 4, 10);
 
     CHECK(g.saveGame(&err));
     CHECK(err.empty());
@@ -425,14 +468,26 @@ void testSaveLoad() {
     CHECK(!h.flags().gameCompleted);
     CHECK(h.flags().metElder);
     CHECK(h.flags().introSeen);
+    CHECK(h.flags().herbQuestAccepted);
+    CHECK(h.flags().herbQuestDone);
+    CHECK(h.flags().ruinsCleared);
+    CHECK(h.debugVisited(0));
+    CHECK(h.debugVisited(1));
+    CHECK(!h.debugVisited(2));
+    CHECK(h.debugVisited(3));
     CHECK(h.debugChestOpened(1, 0));
     CHECK(!h.debugChestOpened(1, 1));
     CHECK(!h.debugChestOpened(0, 0));
 
-    // Loading through the title menu also works.
+    // Loading through the title menu also works: Continue opens the load
+    // page on Slot 1, and Z loads it.
     Game menuLoad(1, path);
     tap(menuLoad, Key::Down);
     CHECK(menuLoad.state() == GameState::Title);
+    tap(menuLoad, Key::Confirm);
+    CHECK(menuLoad.state() == GameState::Title);
+    CHECK_EQ(menuLoad.debugTitlePage(), 1);
+    CHECK_EQ(menuLoad.debugTitleSlot(), 1);
     tap(menuLoad, Key::Confirm);
     CHECK(menuLoad.state() == GameState::Explore);
     CHECK_EQ(menuLoad.player().gold, 321);
@@ -447,7 +502,7 @@ void testSaveLoad() {
     // Broken saves are rejected cleanly.
     {
         std::ofstream bad(path, std::ios::trunc);
-        bad << "version 2\nmap 0\n";
+        bad << "version 99\nmap 0\n";
     }
     CHECK(!k.loadGame(&err));
     CHECK(!err.empty());
@@ -470,6 +525,195 @@ void testSaveLoad() {
     CHECK(!k.loadGame(&err));
     CHECK(!k.hasSave());
     std::remove((path + ".tmp").c_str());
+}
+
+// ---------------------------------------------------------------- save slots
+
+void testSaveSlots() {
+    std::string base = tmpPath("rpgcpp_slots.dat");
+    CHECK(slotPath(base, 0) == base);
+    CHECK(slotPath(base, 1).find("-2") != std::string::npos);
+    CHECK(slotPath(base, 2).find("-3") != std::string::npos);
+    CHECK(slotPath(base, -1).find("-auto") != std::string::npos);
+    CHECK(slotLabel(0) == "Slot 1");
+    CHECK(slotLabel(1) == "Slot 2");
+    CHECK(slotLabel(2) == "Slot 3");
+    CHECK(slotLabel(-1) == "Otomatis");
+    CHECK(!anySaveExists(base));
+
+    Game g(88, base);
+    startExplore(g);
+    CHECK(!anySaveExists(base));
+    CHECK(g.slotSummary(0) == "Kosong");
+
+    g.player().gold = 111;
+    CHECK(g.saveToSlot(0));
+    g.player().gold = 222;
+    CHECK(g.saveToSlot(1));
+    g.player().gold = 333;
+    CHECK(g.saveToSlot(2));
+    g.player().gold = 444;
+    CHECK(g.autosave());
+
+    for (int slot = -1; slot <= 2; ++slot) {
+        SaveInfo info = inspectSave(slotPath(base, slot));
+        CHECK(info.exists);
+        CHECK(info.valid);
+        CHECK_EQ(info.version, 2);
+        CHECK_EQ(info.gold, slot < 0 ? 444 : 111 * (slot + 1));
+        CHECK(g.slotSummary(slot).find("G") != std::string::npos);
+    }
+    CHECK(anySaveExists(base));
+    CHECK(g.anySaveExists());
+
+    // saveGame() follows the slot selected by saveToSlot()/loadFromSlot().
+    CHECK(g.loadFromSlot(1));
+    CHECK_EQ(g.saveSlot(), 1);
+    CHECK_EQ(g.player().gold, 222);
+    g.player().gold = 999;
+    CHECK(g.saveGame());
+    Game reload(1, base);
+    CHECK(reload.loadFromSlot(1));
+    CHECK_EQ(reload.player().gold, 999);
+
+    // An old version-1 save still loads with sensible defaults.
+    {
+        std::ofstream old(base, std::ios::trunc);
+        old << "version 1\nmap 0\nx 224\ny 288\nlevel 2\n";
+    }
+    Game legacy(2, base);
+    CHECK(legacy.loadGame());
+    CHECK_EQ(legacy.currentMap(), 0);
+    CHECK_EQ(legacy.player().level, 2);
+    CHECK_EQ(legacy.player().weapon, 0);
+
+    // Corrupt slot files are reported instead of crashing.
+    {
+        std::ofstream bad(slotPath(base, 2), std::ios::trunc);
+        bad << "version 99\nmap 0\n";
+    }
+    CHECK(g.slotSummary(2) == "Berkas rusak");
+
+    removeSaveFiles(base);
+}
+
+// ---------------------------------------------------------------- settings
+
+void testSettings() {
+    std::string path = "/tmp/opencode/rpgcpp_settings/settings.cfg";
+    std::error_code ec;
+    std::filesystem::remove_all("/tmp/opencode/rpgcpp_settings", ec);
+
+    Settings defaults = loadSettings(path);
+    CHECK_NEAR(defaults.musicVolume, 0.62f);
+    CHECK_NEAR(defaults.sfxVolume, 0.78f);
+    CHECK(!defaults.muted);
+    CHECK(!defaults.fullscreen);
+
+    Settings s;
+    s.musicVolume = 0.35f;
+    s.sfxVolume = 0.9f;
+    s.muted = true;
+    s.fullscreen = true;
+    std::string err = "x";
+    CHECK(saveSettings(path, s, &err));
+    CHECK(err.empty());
+    CHECK(std::filesystem::exists(path));
+    CHECK(!std::filesystem::exists(path + ".tmp"));
+
+    Settings back = loadSettings(path);
+    CHECK_NEAR(back.musicVolume, 0.35f);
+    CHECK_NEAR(back.sfxVolume, 0.9f);
+    CHECK(back.muted);
+    CHECK(back.fullscreen);
+
+    // Out-of-range and malformed values are clamped or ignored.
+    {
+        std::ofstream f(path, std::ios::trunc);
+        f << "# komentar\n";
+        f << "music=nan\n";
+        f << "sfx=5\n";
+        f << "muted=ya\n";
+        f << "fullscreen=tidak\n";
+        f << "unknown=1\n";
+        f << "broken line\n";
+    }
+    Settings clamped = loadSettings(path);
+    CHECK_NEAR(clamped.musicVolume, 0.62f);
+    CHECK_NEAR(clamped.sfxVolume, 1.0f);
+    CHECK(clamped.muted);
+    CHECK(!clamped.fullscreen);
+
+    CHECK(!defaultSettingsPath().empty());
+    CHECK(defaultSettingsPath().find("settings.cfg") != std::string::npos);
+
+    std::filesystem::remove_all("/tmp/opencode/rpgcpp_settings", ec);
+}
+
+// ---------------------------------------------------------------- title flow
+
+void testTitleFlow() {
+    std::string path = tmpPath("rpgcpp_title.dat");
+    Game g(71, path);
+    CHECK_EQ(g.debugTitleIndex(), 0);
+    CHECK_EQ(g.debugTitlePage(), 0);
+
+    // With no save, New Game starts immediately after the narrator intro.
+    tap(g, Key::Confirm);
+    CHECK_EQ(g.debugTitlePage(), 0);
+    CHECK(g.state() == GameState::Dialogue);
+    CHECK(g.dialogue().speaker == "Narator");
+    g.debugAdvanceDialogue();
+    CHECK(g.state() == GameState::Explore);
+    CHECK(g.saveToSlot(0));
+    g.player().gold = 222;
+    CHECK(g.saveToSlot(1));
+
+    // New Game on a saved profile asks first; the default answer is Batal.
+    Game h(72, path);
+    tap(h, Key::Confirm);
+    CHECK_EQ(h.debugTitlePage(), 2);
+    CHECK_EQ(h.debugTitleConfirm(), 1);
+    tap(h, Key::Confirm);
+    CHECK_EQ(h.debugTitlePage(), 0);
+    CHECK(h.state() == GameState::Title);
+    tap(h, Key::Confirm);
+    CHECK_EQ(h.debugTitlePage(), 2);
+    tap(h, Key::Up);
+    CHECK_EQ(h.debugTitleConfirm(), 0);
+    tap(h, Key::Confirm);
+    CHECK_EQ(h.debugTitlePage(), 0);
+    CHECK(h.state() == GameState::Dialogue);
+
+    // Continue opens the five-row load page; slot 1 is preselected.
+    Game l(73, path);
+    tap(l, Key::Down);
+    tap(l, Key::Confirm);
+    CHECK_EQ(l.debugTitlePage(), 1);
+    CHECK_EQ(l.debugTitleSlot(), 1);
+    tap(l, Key::Cancel);
+    CHECK_EQ(l.debugTitlePage(), 0);
+    CHECK_EQ(l.debugTitleIndex(), 1);
+    tap(l, Key::Confirm);
+    tap(l, Key::Down);
+    CHECK_EQ(l.debugTitleSlot(), 2);
+    tap(l, Key::Confirm);
+    CHECK_EQ(l.debugTitlePage(), 0);
+    CHECK(l.state() == GameState::Explore);
+    CHECK_EQ(l.player().gold, 222);
+    CHECK_EQ(l.saveSlot(), 1);
+
+    // The Kembali row backs out without loading.
+    Game b(74, path);
+    tap(b, Key::Down);
+    tap(b, Key::Confirm);
+    tap(b, Key::Up, 2);
+    CHECK_EQ(b.debugTitleSlot(), 4);
+    tap(b, Key::Confirm);
+    CHECK_EQ(b.debugTitlePage(), 0);
+    CHECK(b.state() == GameState::Title);
+
+    removeSaveFiles(path);
 }
 
 // ---------------------------------------------------------------- chests/flavor
@@ -939,6 +1183,114 @@ void testQuestFlow() {
     std::remove(path.c_str());
 }
 
+// ---------------------------------------------------------------- new content
+
+void walkUntilMap(Game& g, Key key, int startMap, int expectedMap);
+
+void testNewContent() {
+    std::string path = tmpPath("rpgcpp_content.dat");
+    Game g(56, path);
+    startExplore(g);
+    CHECK(g.questObjective().find("Tetua Ardan") != std::string::npos);
+    CHECK(g.sideQuestObjective().find("Ruslan") != std::string::npos);
+
+    // Farmer Ruslan asks for three potions and rewards gold plus an elixir.
+    g.player().potions = 0;
+    g.player().elixirs = 0;
+    g.player().gold = 10;
+    g.debugWarp(0, 21, 15);
+    g.debugSetFacing(1);
+    g.debugInteract();
+    CHECK(g.state() == GameState::Dialogue);
+    CHECK(g.dialogue().speaker == "Petani Ruslan");
+    CHECK(g.flags().herbQuestAccepted);
+    CHECK(g.sideQuestObjective().find("0/3") != std::string::npos);
+    g.debugAdvanceDialogue();
+
+    g.player().potions = 3;
+    g.debugInteract();
+    CHECK(g.flags().herbQuestDone);
+    CHECK_EQ(g.player().potions, 0);
+    CHECK_EQ(g.player().gold, 130);
+    CHECK_EQ(g.player().elixirs, 1);
+    CHECK(g.sideQuestObjective().find("Selesai") != std::string::npos);
+    CHECK(std::filesystem::exists(slotPath(path, -1)));
+    CHECK(inspectSave(slotPath(path, -1)).valid);
+    g.debugAdvanceDialogue();
+
+    // Story objectives advance as the flags change.
+    g.flagsMutable().metElder = true;
+    CHECK(g.questObjective().find("Batu Matahari") != std::string::npos);
+    g.flagsMutable().bossDefeated = true;
+    CHECK(g.questObjective().find("Tetua Ardan") != std::string::npos);
+    g.flagsMutable().gameCompleted = true;
+    CHECK(g.questObjective().find("Penjaga Fajar") != std::string::npos);
+    g.flagsMutable().ruinsCleared = true;
+    CHECK(g.questObjective().find("aman") != std::string::npos);
+
+    // The ruin portal is sealed without the Sunstone.
+    Game r(57, path);
+    startExplore(r);
+    r.debugWarp(1, 36, 7);
+    idle(r, 70);
+    for (int i = 0; i < 60 && r.state() == GameState::Explore; ++i) {
+        InputState up;
+        up.held[static_cast<int>(Key::Up)] = true;
+        r.update(1.0f / 60.0f, up);
+    }
+    CHECK_EQ(r.currentMap(), 1);
+    CHECK(r.state() == GameState::Dialogue);
+    CHECK(r.dialogue().speaker == "Segel Fajar");
+    r.debugAdvanceDialogue();
+    CHECK(r.state() == GameState::Explore);
+
+    r.player().hasSunstone = true;
+    idle(r, 120);
+    walkUntilMap(r, Key::Up, 1, 3);
+    CHECK_NEAR(r.playerX(), 17 * TILE);
+    CHECK_NEAR(r.playerY(), 24 * TILE);
+    CHECK(r.debugVisited(3));
+
+    // Tier-3 gear lives in the ruins.
+    r.debugWarp(3, 4, 12);
+    r.debugSetFacing(1);
+    r.debugInteract();
+    CHECK_EQ(r.player().weapon, 3);
+    r.debugAdvanceDialogue();
+    r.debugWarp(3, 30, 12);
+    r.debugSetFacing(1);
+    r.debugInteract();
+    CHECK_EQ(r.player().armor, 3);
+    r.debugAdvanceDialogue();
+
+    // The Guardian blocks the dawn until beaten, then disappears.
+    r.debugWarp(3, 17, 5);
+    r.debugSetFacing(1);
+    r.debugInteract();
+    CHECK(r.state() == GameState::Dialogue);
+    CHECK(r.dialogue().speaker == "Penjaga Fajar");
+    r.debugAdvanceDialogue();
+    idle(r, 40);
+    CHECK(r.state() == GameState::Battle);
+    CHECK(r.battle().isBoss());
+    CHECK_EQ(static_cast<int>(r.battle().enemyType()),
+             static_cast<int>(EnemyType::Guardian));
+    r.battle().forceEnemyHp(1);
+    r.battle().forceCommandPhase();
+    for (int i = 0; i < 220 && r.state() == GameState::Battle; ++i) tap(r, Key::Confirm);
+    CHECK(r.flags().ruinsCleared);
+    CHECK(r.state() == GameState::Dialogue);
+    CHECK(inspectSave(slotPath(path, -1)).valid);
+    r.debugAdvanceDialogue();
+    CHECK(r.state() == GameState::Explore);
+    r.debugWarp(3, 17, 5);
+    r.debugSetFacing(1);
+    r.debugInteract();
+    CHECK(r.state() == GameState::Explore);
+
+    removeSaveFiles(path);
+}
+
 // ---------------------------------------------------------------- portals/collision
 
 void walkUntilMap(Game& g, Key key, int startMap, int expectedMap) {
@@ -1044,10 +1396,14 @@ void testMenusAndGameOver() {
     tap(h, Key::Confirm);  // use potion
     CHECK_EQ(h.player().hp, 41);
     tap(h, Key::Cancel);   // back to root
-    tap(h, Key::Down, 2);  // save row
+    tap(h, Key::Down, 3);  // save row
     h.player().gold = 88;
-    tap(h, Key::Confirm);  // save
+    tap(h, Key::Confirm);  // open save page
+    CHECK_EQ(h.debugMenuPage(), 4);
+    tap(h, Key::Confirm);  // save Slot 1
     CHECK(h.hasSave());
+    tap(h, Key::Cancel);   // leave save page
+    CHECK_EQ(h.debugMenuPage(), 0);
     tap(h, Key::Cancel);   // close menu
     CHECK(h.state() == GameState::Explore);
 
@@ -1074,7 +1430,7 @@ void testMenusAndGameOver() {
     CHECK(loaded.loadGame());
     CHECK_EQ(loaded.player().gold, 88);
 
-    std::remove(path.c_str());
+    removeSaveFiles(path);
 }
 
 // ---------------------------------------------------------------- updater
@@ -1265,32 +1621,37 @@ void testAudio() {
     CHECK(audio.muted());
     audio.toggleMute();
     CHECK(!audio.muted());
+    audio.setPaused(true);
+    CHECK(audio.paused());
+    audio.setPaused(false);
+    CHECK(!audio.paused());
     audio.shutdown();
     CHECK(!audio.available());
 
-    // Menu navigation: root has five rows and row 3 opens the audio page.
+    // Menu navigation: root has six rows and row 4 opens the audio page.
     std::string path = tmpPath("rpgcpp_audio.dat");
     Game g(41, path);
     startExplore(g);
     g.debugOpenMenu();
     CHECK_EQ(g.debugMenuPage(), 0);
-    tap(g, Key::Down, 4);
-    CHECK_EQ(g.debugMenuIndex(), 4);
+    tap(g, Key::Down, 5);
+    CHECK_EQ(g.debugMenuIndex(), 5);
     tap(g, Key::Down);
     CHECK_EQ(g.debugMenuIndex(), 0);
     tap(g, Key::Up);
-    CHECK_EQ(g.debugMenuIndex(), 4);
+    CHECK_EQ(g.debugMenuIndex(), 5);
     tap(g, Key::Up);
+    CHECK_EQ(g.debugMenuIndex(), 4);
     tap(g, Key::Confirm);
-    CHECK_EQ(g.debugMenuPage(), 3);
+    CHECK_EQ(g.debugMenuPage(), 5);
     CHECK_EQ(g.debugMenuIndex(), 0);
 
     // Without an Audio object the page reports unavailability and backs out.
     tap(g, Key::Confirm);
     CHECK_EQ(g.debugMenuPage(), 0);
-    CHECK_EQ(g.debugMenuIndex(), 3);
+    CHECK_EQ(g.debugMenuIndex(), 4);
     tap(g, Key::Confirm);
-    CHECK_EQ(g.debugMenuPage(), 3);
+    CHECK_EQ(g.debugMenuPage(), 5);
     tap(g, Key::Cancel);
     CHECK_EQ(g.debugMenuPage(), 0);
     tap(g, Key::Cancel);
@@ -1300,11 +1661,11 @@ void testAudio() {
     Audio settings;
     g.setAudio(&settings);
     g.debugOpenMenu();
-    tap(g, Key::Up);  // root row 0 -> 4
-    tap(g, Key::Up);  // root row 4 -> 3
-    CHECK_EQ(g.debugMenuIndex(), 3);
+    tap(g, Key::Up);  // root row 0 -> 5
+    tap(g, Key::Up);  // root row 5 -> 4
+    CHECK_EQ(g.debugMenuIndex(), 4);
     tap(g, Key::Confirm);
-    CHECK_EQ(g.debugMenuPage(), 3);
+    CHECK_EQ(g.debugMenuPage(), 5);
     CHECK_EQ(g.debugMenuIndex(), 0);
     tap(g, Key::Right, 5);
     CHECK_NEAR(settings.musicVolume(), 1.0f);
@@ -1324,13 +1685,13 @@ void testAudio() {
     CHECK_EQ(g.debugMenuIndex(), 3);
     tap(g, Key::Confirm);
     CHECK_EQ(g.debugMenuPage(), 0);
-    CHECK_EQ(g.debugMenuIndex(), 3);
+    CHECK_EQ(g.debugMenuIndex(), 4);
     tap(g, Key::Cancel);
     CHECK(g.state() == GameState::Explore);
     g.setAudio(nullptr);
     CHECK(g.state() == GameState::Explore);
 
-    std::remove(path.c_str());
+    removeSaveFiles(path);
 }
 
 // ---------------------------------------------------------------- rendering
@@ -1405,6 +1766,28 @@ void testRender() {
     Framebuffer shot;
     shot.resize(VIEW_W, VIEW_H);
 
+    // Title confirmation and load pages render with real save metadata.
+    std::string titlePath = tmpPath("rpgcpp_render_title.dat");
+    {
+        Game maker(32, titlePath);
+        startExplore(maker);
+        CHECK(maker.saveToSlot(0));
+    }
+    Game titleView(33, titlePath);
+    tap(titleView, Key::Confirm);
+    CHECK_EQ(titleView.debugTitlePage(), 2);
+    shot.clear(pal::black);
+    titleView.render(shot);
+    CHECK(distinctColors(shot) > 8);
+    tap(titleView, Key::Cancel);
+    tap(titleView, Key::Down);
+    tap(titleView, Key::Confirm);
+    CHECK_EQ(titleView.debugTitlePage(), 1);
+    shot.clear(pal::black);
+    titleView.render(shot);
+    CHECK(distinctColors(shot) > 8);
+    removeSaveFiles(titlePath);
+
     std::string statePath = tmpPath("rpgcpp_render_states.dat");
     Game g(31, statePath);
     auto renderState = [&](const char* name) {
@@ -1431,8 +1814,19 @@ void testRender() {
     tap(g, Key::Confirm);
     renderState("menu-status");
     tap(g, Key::Cancel);
-    tap(g, Key::Down, 2);
+    tap(g, Key::Down);
     tap(g, Key::Confirm);
+    CHECK_EQ(g.debugMenuPage(), 3);
+    renderState("menu-journal");
+    tap(g, Key::Cancel);
+    tap(g, Key::Down);
+    tap(g, Key::Confirm);
+    CHECK_EQ(g.debugMenuPage(), 4);
+    renderState("menu-save");
+    tap(g, Key::Cancel);
+    tap(g, Key::Down);
+    tap(g, Key::Confirm);
+    CHECK_EQ(g.debugMenuPage(), 5);
     renderState("menu-audio");
     tap(g, Key::Cancel);
     tap(g, Key::Cancel);
@@ -1449,6 +1843,9 @@ void testRender() {
     g.debugStartBattle(EnemyType::Warden, true);
     idle(g, 30);
     renderState("battle-boss");
+    g.debugStartBattle(EnemyType::Guardian, true);
+    idle(g, 30);
+    renderState("battle-guardian");
     g.battle().forceCommandPhase();
     renderState("battle-command");
 
@@ -1458,6 +1855,19 @@ void testRender() {
 }
 
 void testDisplayPixels() {
+    // The window icon is deterministic ARGB art, independent from X11.
+    std::vector<uint32_t> icon = buildWindowIcon(32);
+    CHECK_EQ(icon.size(), static_cast<size_t>(32 * 32));
+    bool opaque = true, hasSun = false;
+    for (uint32_t px : icon) {
+        if ((px >> 24) != 0xFFu) opaque = false;
+        if (px == 0xFFFFF2C0u) hasSun = true;
+    }
+    CHECK(opaque);
+    CHECK(hasSun);
+    CHECK(buildWindowIcon(32) == icon);
+    CHECK_EQ(buildWindowIcon(4).size(), static_cast<size_t>(8 * 8));
+
     ColorChannel red = colorChannelFromMask(0x00FF0000UL);
     ColorChannel green = colorChannelFromMask(0x0000FF00UL);
     ColorChannel blue = colorChannelFromMask(0x000000FFUL);
@@ -1551,10 +1961,14 @@ int main() {
     testPlayer();
     testWorld();
     testSaveLoad();
+    testSaveSlots();
+    testSettings();
+    testTitleFlow();
     testChestsAndFlavor();
     testShopAndInn();
     testBattle();
     testQuestFlow();
+    testNewContent();
     testPortalsAndCollision();
     testMenusAndGameOver();
     testUpdater();

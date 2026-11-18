@@ -27,21 +27,34 @@ enum class Tile : uint8_t {
     CaveWall,
     Lava,
     CaveEntrance,
+    RuinEntrance,
     Sign,
     Pillar,
     Void,
 };
 
-enum class EnemyType : uint8_t { Slime, Bat, Wolf, Skeleton, Warden };
+enum class EnemyType : uint8_t { Slime, Bat, Wolf, Skeleton, Warden, Guardian };
 
 // NPC visual/role styles.
-enum class NpcStyle : uint8_t { Elder, Shopkeeper, Innkeeper, Guard, Kid, Farmer, Villager, Warden };
+enum class NpcStyle : uint8_t {
+    Elder,
+    Shopkeeper,
+    Innkeeper,
+    Guard,
+    Kid,
+    Farmer,
+    Villager,
+    Warden,
+    Guardian,
+};
 
 struct Portal {
     int x = 0, y = 0, w = 1, h = 1;
     int targetMap = 0;
     int spawnX = 0, spawnY = 0;
     int spawnDir = 0;
+    // Optional seal: the portal refuses to open until the Sunstone is found.
+    bool requiresSunstone = false;
 };
 
 struct NpcSpawn {
@@ -65,7 +78,7 @@ struct MapDef {
     std::vector<Portal> portals;
     std::vector<NpcSpawn> npcs;
     std::vector<ChestSpawn> chests;
-    int encounterSet = 0;  // 0 none, 1 overworld, 2 cave
+    int encounterSet = 0;  // 0 none, 1 overworld, 2 cave, 3 ruins
 
     Tile at(int x, int y) const {
         if (x < 0 || y < 0 || x >= w || y >= h) return Tile::Void;

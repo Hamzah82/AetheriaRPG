@@ -6,7 +6,9 @@ tests/run_tests
 *.d
 
 # Simpanan dan tangkapan layar lokal
-savegame.dat
-savegame.dat.tmp
-savegame.dat.shot
+savegame*.dat
+savegame*.dat.tmp
+savegame*.dat.shot*
+savegame*.dat.shot*.tmp
+settings.cfg
 shots/

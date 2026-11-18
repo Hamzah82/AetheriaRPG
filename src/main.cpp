@@ -14,6 +14,8 @@
 #include "game.h"
 #include "gfx.h"
 #include "platform.h"
+#include "savegame.h"
+#include "settings.h"
 #include "updater.h"
 
 using namespace rpg;
@@ -25,6 +27,7 @@ struct Options {
     int frames = 600;
     uint64_t seed = 20261118ull;
     std::string savePath = defaultSavePath();
+    std::string settingsPath = defaultSettingsPath();
     std::string screenshotDir;
     bool headless = false;
     bool audio = true;
@@ -49,6 +52,8 @@ Options parseArgs(int argc, char** argv) {
             if (i + 1 < argc) o.seed = std::strtoull(argv[++i], nullptr, 10);
         } else if (a == "--save") {
             if (i + 1 < argc) o.savePath = argv[++i];
+        } else if (a == "--settings") {
+            if (i + 1 < argc) o.settingsPath = argv[++i];
         } else if (a == "--screenshot") {
             if (i + 1 < argc) o.screenshotDir = argv[++i];
         } else if (a == "--headless") {
@@ -84,7 +89,13 @@ int runScreenshots(const Options& opt) {
     }
     Framebuffer fb;
     fb.resize(VIEW_W, VIEW_H);
-    Game game(opt.seed, opt.savePath + ".shot");
+    std::string shotBase = opt.savePath + ".shot";
+    for (int slot = -1; slot <= 2; ++slot) {
+        std::string path = slotPath(shotBase, slot);
+        std::remove(path.c_str());
+        std::remove((path + ".tmp").c_str());
+    }
+    Game game(opt.seed, shotBase);
     // The screenshot run never opens an audio device, but a non-null Audio
     // object lets the audio settings page render with its real controls.
     Audio previewAudio;
@@ -123,7 +134,7 @@ int runScreenshots(const Options& opt) {
     tick(20);
     save("01_title");
 
-    confirmPress(1);  // Mulai Baru
+    game.newGame();
     game.debugAdvanceDialogue();
     tick(10);
     save("02_village");
@@ -171,28 +182,55 @@ int runScreenshots(const Options& opt) {
     save("11_status");
     pressKey(Key::Cancel);
     pressKey(Key::Down);
+    pressKey(Key::Confirm);
+    tick(4);
+    save("12_journal");
+    pressKey(Key::Cancel);
+    pressKey(Key::Down);
+    pressKey(Key::Confirm);
+    confirmPress(1);  // simpan ke Slot 1
+    tick(4);
+    save("13_save_slots");
+    pressKey(Key::Cancel);
     pressKey(Key::Down);
     pressKey(Key::Confirm);
     tick(4);
-    save("12_menu_audio");
+    save("14_menu_audio");
 
     game.debugWarp(0, 14, 12);
     game.debugOpenShop();
     tick(6);
-    save("13_shop");
+    save("15_shop");
 
     game.debugGameOver();
     tick(6);
-    save("14_gameover");
+    save("16_gameover");
+
+    game.debugWarp(3, 17, 23);
+    tick(8);
+    save("17_ruins");
+
+    game.debugStartBattle(EnemyType::Guardian, true);
+    confirmPress(2);
+    tick(24);
+    save("18_battle_guardian");
 
     game.debugStartEnding();
     tick(300);
-    save("15_ending");
+    save("19_ending");
+    for (int slot = -1; slot <= 2; ++slot) {
+        std::string path = slotPath(shotBase, slot);
+        std::remove(path.c_str());
+        std::remove((path + ".tmp").c_str());
+    }
     return 0;
 }
 
 void runHeadless(const Options& opt) {
     Game game(opt.seed, opt.savePath);
+    // Start from a fresh game so the smoke test never depends on an existing
+    // save (or the new-game confirmation) on the machine running it.
+    game.newGame();
     Framebuffer fb;
     fb.resize(VIEW_W, VIEW_H);
     InputState in;
@@ -242,6 +280,7 @@ int main(int argc, char** argv) {
             "  --scale N        perbesaran jendela (1-6, bawaan 3)\n"
             "  --seed N         benih acak\n"
             "  --save PATH      lokasi berkas simpanan\n"
+            "  --settings PATH  lokasi berkas pengaturan\n"
             "  --headless       uji jalan tanpa jendela\n"
             "  --frames N       jumlah frame uji headless\n"
             "  --no-audio       jalankan tanpa musik dan efek suara\n"
@@ -255,9 +294,12 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    Settings settings = loadSettings(opt.settingsPath);
+    bool wantFullscreen = opt.fullscreen || settings.fullscreen;
+
     Platform platform;
     std::string err;
-    if (!platform.open(opt.scale, "Aetheria: Bayangan Terakhir", &err, opt.fullscreen)) {
+    if (!platform.open(opt.scale, "Aetheria: Bayangan Terakhir", &err, wantFullscreen)) {
         std::fprintf(stderr, "%s\n", err.c_str());
         return 1;
     }
@@ -266,6 +308,9 @@ int main(int argc, char** argv) {
     if (opt.audio) {
         std::string audioErr;
         if (audio.init(&audioErr)) {
+            audio.setMusicVolume(settings.musicVolume);
+            audio.setSfxVolume(settings.sfxVolume);
+            audio.setMuted(settings.muted);
             std::printf("audio: aktif (prosedural, 44100 Hz mono)\n");
         } else {
             std::fprintf(stderr, "audio: %s\n", audioErr.c_str());
@@ -279,10 +324,26 @@ int main(int argc, char** argv) {
     Framebuffer fb;
     fb.resize(VIEW_W, VIEW_H);
     InputState in;
+    bool audioPaused = false;
     auto last = std::chrono::steady_clock::now();
     while (true) {
         if (!platform.pump(in)) break;
         auto now = std::chrono::steady_clock::now();
+        if (!platform.focused()) {
+            // Freeze simulation and audio while another window has focus, and
+            // keep the clock current so refocusing never produces a dt spike.
+            if (!audioPaused) {
+                audio.setPaused(true);
+                audioPaused = true;
+            }
+            last = now;
+            platform.frameDelay();
+            continue;
+        }
+        if (audioPaused) {
+            audio.setPaused(false);
+            audioPaused = false;
+        }
         float dt = std::chrono::duration<float>(now - last).count();
         last = now;
         dt = clampf(dt, 0.0f, 0.05f);
@@ -290,10 +351,28 @@ int main(int argc, char** argv) {
         game.render(fb);
         platform.present(fb);
         platform.frameDelay();
+
+        if (platform.takeFullscreenChanged()) {
+            settings.fullscreen = platform.isFullscreen();
+            saveSettings(opt.settingsPath, settings);
+        }
+        if (game.takeSettingsDirty() && audio.available()) {
+            settings.musicVolume = audio.musicVolume();
+            settings.sfxVolume = audio.sfxVolume();
+            settings.muted = audio.muted();
+            saveSettings(opt.settingsPath, settings);
+        }
         if (game.quitRequested() || game.restartRequested()) break;
     }
 
     bool restart = game.restartRequested();
+    if (audio.available() && !audioPaused) {
+        settings.musicVolume = audio.musicVolume();
+        settings.sfxVolume = audio.sfxVolume();
+        settings.muted = audio.muted();
+    }
+    settings.fullscreen = platform.isFullscreen();
+    saveSettings(opt.settingsPath, settings);
     platform.close();
     audio.shutdown();
 

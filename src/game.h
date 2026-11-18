@@ -9,6 +9,7 @@
 #include "core.h"
 #include "gfx.h"
 #include "player.h"
+#include "savegame.h"
 #include "world.h"
 
 namespace rpg {
@@ -25,6 +26,9 @@ struct Flags {
     bool gameCompleted = false;
     bool metElder = false;
     bool introSeen = false;
+    bool herbQuestAccepted = false;
+    bool herbQuestDone = false;
+    bool ruinsCleared = false;
 };
 
 struct Particle {
@@ -65,6 +69,8 @@ extern const ShopItem SHOP[SHOP_COUNT];
 
 class Game {
 public:
+    enum class TitlePage { Main, Load, ConfirmNew };
+
     Game(uint64_t seed, std::string savePath);
 
     void update(float dt, const InputState& in);
@@ -90,6 +96,20 @@ public:
     bool saveGame(std::string* err = nullptr);
     bool loadGame(std::string* err = nullptr);
 
+    // Save slots. Slot 0 is the classic savegame.dat path; slots 1-2 add
+    // suffixes and -1 is the automatic save written at story checkpoints.
+    int saveSlot() const { return saveSlot_; }
+    bool anySaveExists() const;
+    bool saveToSlot(int slot, std::string* err = nullptr);
+    bool loadFromSlot(int slot, std::string* err = nullptr);
+    bool autosave();
+    std::string slotSummary(int slot) const;
+    std::string questObjective() const;
+    std::string sideQuestObjective() const;
+
+    // True once after an audio setting changed, so main can persist it.
+    bool takeSettingsDirty();
+
     // Audio is optional; passing nullptr (or never calling this) keeps the
     // game completely silent, which tests and screenshot runs rely on.
     void setAudio(Audio* audio);
@@ -107,9 +127,16 @@ public:
     int debugMenuPage() const { return menuPage_; }
     int debugMenuIndex() const { return menuIndex_; }
     int debugTitleIndex() const { return titleIndex_; }
+    int debugTitlePage() const { return static_cast<int>(titlePage_); }
+    int debugTitleSlot() const { return titleSlotIndex_; }
+    int debugTitleConfirm() const { return titleConfirmIndex_; }
     void debugInteract();
     void debugAdvanceDialogue();
     bool debugChestOpened(int map, int index) const;
+    bool debugVisited(int map) const {
+        return map >= 0 && map < static_cast<int>(visited_.size()) &&
+               visited_[static_cast<size_t>(map)];
+    }
     void debugOpenShop();
     void debugStartEnding();
     void debugGameOver();
@@ -144,13 +171,18 @@ private:
     void innTalk();
     void guardTalk();
     void wardenTalk();
+    void guardianTalk();
     void flavorTalk(int dialogueId);
     void pickRandomEnemy(EnemyType* type);
 
     void openMenu();
     void closeMenu();
     void useFieldItem(bool elixir);
-    void saveFromMenu();
+    void saveFromMenu(int slot);
+    void markVisited(int map);
+    bool npcHidden(const NpcSpawn& npc) const;
+    bool writeSaveTo(const std::string& path, std::string* err);
+    bool readSaveFrom(const std::string& path, std::string* err);
 
     void spawnDust();
     void spawnBurst(float x, float y, int count, uint32_t color, float speed);
@@ -169,6 +201,9 @@ private:
     void renderExplore(Framebuffer& fb);
     void renderDialogue(Framebuffer& fb);
     void renderMenu(Framebuffer& fb);
+    void renderJournal(Framebuffer& fb);
+    void renderSaveSlots(Framebuffer& fb);
+    void renderMinimap(Framebuffer& fb, int x, int y, int w, int h);
     void renderShop(Framebuffer& fb);
     void renderGameOver(Framebuffer& fb);
     void renderEnding(Framebuffer& fb);
@@ -188,7 +223,9 @@ private:
 
     Vec2 camera_;
     Rng rng_;
+    std::string saveBase_;
     std::string savePath_;
+    int saveSlot_ = 0;
     Audio* audio_ = nullptr;
     Updater* updater_ = nullptr;
     bool quit_ = false;
@@ -196,6 +233,9 @@ private:
     bool titleUpdateActive_ = false;
 
     int titleIndex_ = 0;
+    TitlePage titlePage_ = TitlePage::Main;
+    int titleSlotIndex_ = 1;
+    int titleConfirmIndex_ = 1;
     float titleTime_ = 0.0f;
     std::string titleMsg_;
     float titleMsgTimer_ = 0.0f;
@@ -210,9 +250,12 @@ private:
     std::string mapBannerText_;
 
     std::vector<std::vector<bool>> chestOpened_;
+    std::vector<bool> visited_;
+    bool settingsDirty_ = false;
 
-    int menuPage_ = 0;  // 0 root, 1 items, 2 status, 3 audio
+    int menuPage_ = 0;  // 0 root, 1 items, 2 status, 3 journal, 4 save, 5 audio
     int menuIndex_ = 0;
+    int saveConfirmSlot_ = -1;
     std::string menuMessage_;
     float menuMessageTimer_ = 0.0f;
 
