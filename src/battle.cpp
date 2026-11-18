@@ -483,7 +483,7 @@ void Battle::render(Framebuffer& fb, const Player& p, float time) {
     }
 
     art::enemy(fb, info_.type, ENEMY_X + shakeX, ENEMY_Y + shakeY, t_, hurtT_ > 0.0f);
-    art::playerScaled(fb, HERO_X, HERO_Y, 3, 3, 0.0f, false);
+    art::playerScaled(fb, HERO_X, HERO_Y, 3, 3, 0.0f, false, p.weapon, p.armor);
 
     // Attack effects.
     if (effect_ > 0 && effectT_ < 0.65f) {

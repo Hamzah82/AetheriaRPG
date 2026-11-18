@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "art.h"
 #include "audio.h"
 #include "audio_synth.h"
 #include "battle.h"
@@ -1696,6 +1697,60 @@ void testAudio() {
 
 // ---------------------------------------------------------------- rendering
 
+void testEquipmentArt() {
+    auto hero = [](int weapon, int armor, int dir, bool scaled = false) {
+        Framebuffer f;
+        const int size = scaled ? 64 : 20;
+        f.resize(size, size);
+        f.clear(pal::black);
+        if (scaled)
+            art::playerScaled(f, 1, 1, 3, dir, 0.0f, false, weapon, armor);
+        else
+            art::player(f, 1, 1, dir, 0.0f, false, weapon, armor);
+        return f;
+    };
+    auto colors = [](const Framebuffer& f) {
+        return std::set<uint32_t>(f.px.begin(), f.px.end());
+    };
+
+    // Every weapon and armour tier must produce a visibly different hero.
+    Framebuffer weapons[4];
+    Framebuffer armors[4];
+    for (int i = 0; i < 4; ++i) {
+        weapons[i] = hero(i, 0, 3);
+        armors[i] = hero(0, i, 3);
+    }
+    for (int i = 0; i < 4; ++i) {
+        for (int j = i + 1; j < 4; ++j) {
+            CHECK(weapons[i].px != weapons[j].px);
+            CHECK(armors[i].px != armors[j].px);
+        }
+    }
+
+    // The exact palette of each tier appears in the sprite, so a regression
+    // cannot silently fall back to the starting equipment.
+    CHECK(colors(weapons[0]).count(0xFF8A5A2E));  // wooden blade
+    CHECK(colors(weapons[1]).count(0xFFB87830));  // bronze blade
+    CHECK(colors(weapons[2]).count(0xFFB8C0CC));  // iron blade
+    CHECK(colors(weapons[3]).count(0xFFFFD870));  // dawn blade
+    CHECK(colors(armors[0]).count(pal::tunic));   // cloth tunic
+    CHECK(colors(armors[1]).count(0xFF8A5A32));   // leather cuirass
+    CHECK(colors(armors[2]).count(0xFF9AA4B4));   // chainmail
+    CHECK(colors(armors[3]).count(0xFFE8C874));   // dawn plate
+
+    // Equipment stays visible in every facing and in the battle-scale sprite.
+    for (int dir = 0; dir < 4; ++dir) {
+        CHECK(hero(0, 0, dir).px != hero(3, 3, dir).px);
+    }
+    Framebuffer battle = hero(3, 3, 3, true);
+    CHECK(colors(battle).count(0xFFFFD870));
+    CHECK(colors(battle).count(0xFFE8C874));
+    CHECK(hero(3, 3, 3, true).px == battle.px);
+
+    // Out-of-range values are clamped instead of reading past the gear table.
+    CHECK(hero(99, -5, 0).px == hero(3, 0, 0).px);
+}
+
 void testRender() {
     Framebuffer fb;
     fb.resize(VIEW_W, VIEW_H);
@@ -1973,6 +2028,7 @@ int main() {
     testMenusAndGameOver();
     testUpdater();
     testAudio();
+    testEquipmentArt();
     testRender();
     testDisplayPixels();
     std::printf("%d checks, %d failures\n", gChecks, gFailures);

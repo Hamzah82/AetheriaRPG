@@ -241,7 +241,7 @@ void Game::renderExplore(Framebuffer& fb) {
             art::npc(fb, npc.x * TILE - camX, npc.y * TILE - camY, npc.style, npc.facing, globalTime_);
         } else {
             art::player(fb, static_cast<int>(px_) - camX, static_cast<int>(py_) - camY, facing_,
-                        animPhase_, moving_);
+                        animPhase_, moving_, player_.weapon, player_.armor);
         }
     }
 

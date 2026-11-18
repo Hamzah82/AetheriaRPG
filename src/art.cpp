@@ -11,6 +11,8 @@ using namespace pal;
 
 struct Look {
     uint32_t skin, hair, shirt, shirtDark, pants, boots, accent;
+    int weapon = -1;
+    int armor = -1;
 };
 
 void tri(Framebuffer& fb, int x0, int y0, int x1, int y1, int x2, int y2, uint32_t c) {
@@ -46,6 +48,121 @@ void grassBase(Framebuffer& fb, int px, int py, int tx, int ty) {
     }
 }
 
+// Armour details sit on top of the tunic silhouette. The plate set also
+// carries the Dawn Shield, so the shield belongs to the armour slot rather
+// than the weapon slot.
+void armorDetails(Framebuffer& fb, int x, int y, int s, int dir, const Look& L) {
+    switch (L.armor) {
+        case 1: {
+            // Leather cuirass with shoulder pads and a cross strap.
+            const uint32_t leather = 0xFF8A5A32, leatherDark = 0xFF5A3A1E;
+            fb.fillRect(x + 2 * s, y + 6 * s, 4 * s, 2 * s, leather);
+            fb.fillRect(x + 10 * s, y + 6 * s, 4 * s, 2 * s, leather);
+            fb.fillRect(x + 2 * s, y + 8 * s, 4 * s, 1 * s, leatherDark);
+            fb.fillRect(x + 10 * s, y + 8 * s, 4 * s, 1 * s, leatherDark);
+            fb.fillRect(x + 7 * s, y + 7 * s, 2 * s, 4 * s, leatherDark);
+            fb.fillRect(x + 7 * s, y + 10 * s, 2 * s, 1 * s, 0xFFD8B878);
+            break;
+        }
+        case 2: {
+            // Riveted chainmail: bright shoulders and alternating rings.
+            const uint32_t mail = 0xFF9AA4B4, mailDark = 0xFF596274;
+            const uint32_t mailLight = 0xFFD0D8E4;
+            fb.fillRect(x + 1 * s, y + 6 * s, 4 * s, 2 * s, mail);
+            fb.fillRect(x + 11 * s, y + 6 * s, 4 * s, 2 * s, mail);
+            fb.fillRect(x + 1 * s, y + 7 * s, 4 * s, 1 * s, mailDark);
+            fb.fillRect(x + 11 * s, y + 7 * s, 4 * s, 1 * s, mailDark);
+            for (int row = 0; row < 3; ++row) {
+                for (int col = 0; col < 4; ++col) {
+                    int xx = 4 + col * 2 + (row & 1);
+                    int yy = 7 + row * 2;
+                    fb.fillRect(x + xx * s, y + yy * s, s, s,
+                                ((col + row) & 1) ? mailLight : mailDark);
+                }
+            }
+            break;
+        }
+        case 3: {
+            // Gilded dawn plate with a sun sigil and the matching shield.
+            const uint32_t plate = 0xFFE8C874, edge = 0xFFFFF2C0;
+            const uint32_t dark = 0xFF9A6A24;
+            fb.fillRect(x + 1 * s, y + 6 * s, 4 * s, 2 * s, plate);
+            fb.fillRect(x + 11 * s, y + 6 * s, 4 * s, 2 * s, plate);
+            fb.fillRect(x + 1 * s, y + 6 * s, 4 * s, 1 * s, edge);
+            fb.fillRect(x + 11 * s, y + 6 * s, 4 * s, 1 * s, edge);
+            fb.fillRect(x + 4 * s, y + 7 * s, 8 * s, 1 * s, edge);
+            fb.fillRect(x + 4 * s, y + 10 * s, 8 * s, 1 * s, dark);
+            fb.fillRect(x + 6 * s, y + 8 * s, 4 * s, 2 * s, 0xFFFFF2C0);
+            fb.fillRect(x + 7 * s, y + 8 * s, 2 * s, 1 * s, 0xFFB85A1E);
+            fb.fillRect(x + 7 * s, y + 9 * s, 2 * s, 1 * s, 0xFFFFF2C0);
+
+            int side = (dir == 1 || dir == 2) ? 12 : 0;
+            int sx = x + side * s;
+            int sy = y + 8 * s;
+            // Kite shield: wide shoulders, a tapered point, and a sun boss.
+            fb.fillRect(sx, sy, 4 * s, 4 * s, dark);
+            fb.fillRect(sx + s, sy + s, 2 * s, 3 * s, plate);
+            fb.fillRect(sx + s, sy + s, 2 * s, s, edge);
+            fb.fillRect(sx + 2 * s, sy + 2 * s, s, s, 0xFFB85A1E);
+            fb.fillRect(sx + s, sy + 4 * s, 2 * s, s, dark);
+            fb.fillRect(sx + 2 * s, sy + 5 * s, s, s, dark);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+void heldWeapon(Framebuffer& fb, int x, int y, int s, int dir, const Look& L) {
+    if (L.weapon < 0) return;
+    uint32_t blade = 0xFF8A5A2E, edge = 0xFFC08A4A;
+    uint32_t guard = 0xFFB87A3A, grip = 0xFF5A3A1E;
+    switch (clampInt(L.weapon, 0, 3)) {
+        case 0:
+            break;
+        case 1:
+            blade = 0xFFB87830;
+            edge = 0xFFFFC870;
+            guard = 0xFFE8B050;
+            grip = 0xFF3A2A10;
+            break;
+        case 2:
+            blade = 0xFFB8C0CC;
+            edge = 0xFFF0F4FA;
+            guard = 0xFFD0D8E4;
+            grip = 0xFF2A2A34;
+            break;
+        default:
+            blade = 0xFFFFD870;
+            edge = 0xFFFFF6D0;
+            guard = 0xFFFFF2C0;
+            grip = 0xFF7A4A1A;
+            break;
+    }
+
+    // The sword is held in the hand nearest the screen edge so its silhouette
+    // stays readable in every facing. Upgrades get a longer blade as well as
+    // a different metal, which keeps the equipment change obvious at 1x.
+    const bool left = dir == 1 || dir == 2;
+    const int handX = left ? 1 : 14;
+    const int edgeX = left ? 0 : 15;
+    const int bladeLen = 5 + clampInt(L.weapon, 0, 3);
+    fb.fillRect(x + handX * s, y + 10 * s, s, 3 * s, grip);
+    fb.fillRect(x + (left ? 0 : 12) * s, y + 9 * s, 4 * s, s, guard);
+    fb.fillRect(x + handX * s, y + 13 * s, s, s, guard);
+    // Keep the hand visible around the grip so the sword reads as held.
+    fb.fillRect(x + handX * s, y + 11 * s, s, s, L.skin);
+
+    // A two-pixel blade with a bright edge reads as a sword rather than a
+    // walking staff even in the tiny overworld sprite.
+    for (int i = 0; i < bladeLen; ++i) {
+        fb.fillRect(x + handX * s, y + (8 - i) * s, s, s, blade);
+        fb.fillRect(x + edgeX * s, y + (8 - i) * s, s, s, edge);
+    }
+    fb.fillRect(x + handX * s, y + (8 - bladeLen) * s, s, s, edge);
+    fb.fillRect(x + edgeX * s, y + (8 - bladeLen) * s, s, s, edge);
+}
+
 void humanoid(Framebuffer& fb, int x, int y, int s, int dir, float phase, bool moving, const Look& L,
               bool shorty = false, bool helmet = false, bool dress = false) {
     int step = moving ? static_cast<int>(std::round(std::sin(phase * 10.0f) * 1.4f)) : 0;
@@ -74,6 +191,8 @@ void humanoid(Framebuffer& fb, int x, int y, int s, int dir, float phase, bool m
     fb.fillRect(x + 13 * s, y + (torsoY + 1) * s, 2 * s, 4 * s, L.shirtDark);
     fb.fillRect(x + 1 * s, y + (torsoY + 5) * s, 2 * s, 1 * s, L.skin);
     fb.fillRect(x + 13 * s, y + (torsoY + 5) * s, 2 * s, 1 * s, L.skin);
+
+    armorDetails(fb, x, y, s, dir, L);
 
     int headCY = shorty ? 4 : 4;
     int headR = shorty ? 5 : 4;
@@ -105,10 +224,40 @@ void humanoid(Framebuffer& fb, int x, int y, int s, int dir, float phase, bool m
             fb.fillRect(x + 12 * s, y + 5 * s, 1 * s, 1 * s, skinDark);
         }
     }
+
+    heldWeapon(fb, x, y, s, dir, L);
 }
 
-Look playerLook() {
-    return {skin, hair, tunic, tunicDark, 0xFF23305A, 0xFF2A1C14, 0xFFE2C275};
+Look playerLook(int weapon, int armor) {
+    Look L{skin, hair, tunic, tunicDark, 0xFF23305A, 0xFF2A1C14, 0xFFE2C275};
+    L.weapon = clampInt(weapon, 0, 3);
+    L.armor = clampInt(armor, 0, 3);
+    switch (L.armor) {
+        case 1:
+            L.shirt = 0xFF8A5A32;
+            L.shirtDark = 0xFF5A3A1E;
+            L.pants = 0xFF4A3020;
+            L.boots = 0xFF2A1C14;
+            L.accent = 0xFFD8B878;
+            break;
+        case 2:
+            L.shirt = 0xFF9AA4B4;
+            L.shirtDark = 0xFF596274;
+            L.pants = 0xFF3A3A46;
+            L.boots = 0xFF2A2A34;
+            L.accent = 0xFFD0D8E4;
+            break;
+        case 3:
+            L.shirt = 0xFFE8C874;
+            L.shirtDark = 0xFF9A6A24;
+            L.pants = 0xFF5A4218;
+            L.boots = 0xFF3A2A10;
+            L.accent = 0xFFFFF2C0;
+            break;
+        default:
+            break;
+    }
+    return L;
 }
 
 Look npcLook(NpcStyle style) {
@@ -478,16 +627,18 @@ void tile(Framebuffer& fb, Tile t, int px, int py, int tx, int ty, float time) {
     }
 }
 
-void player(Framebuffer& fb, int px, int py, int dir, float phase, bool moving) {
-    humanoid(fb, px, py, 1, dir, phase, moving, playerLook());
+void player(Framebuffer& fb, int px, int py, int dir, float phase, bool moving, int weapon,
+            int armor) {
+    humanoid(fb, px, py, 1, dir, phase, moving, playerLook(weapon, armor));
 }
 
-void playerScaled(Framebuffer& fb, int x, int y, int scale, int dir, float phase, bool moving) {
-    humanoid(fb, x, y, scale, dir, phase, moving, playerLook());
+void playerScaled(Framebuffer& fb, int x, int y, int scale, int dir, float phase, bool moving,
+                  int weapon, int armor) {
+    humanoid(fb, x, y, scale, dir, phase, moving, playerLook(weapon, armor));
 }
 
-void heroBack(Framebuffer& fb, int x, int y, int scale, float time) {
-    Look L = playerLook();
+void heroBack(Framebuffer& fb, int x, int y, int scale, float time, int weapon, int armor) {
+    Look L = playerLook(weapon, armor);
     humanoid(fb, x, y, scale, 1, time * 0.0f, false, L);
 }
 

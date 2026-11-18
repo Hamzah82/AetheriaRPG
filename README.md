@@ -24,6 +24,9 @@ Penjaga Fajar di reruntuhan kuno.
   dikunjungi, ditambah minimap langsung di HUD dan halaman jurnal.
 - Perlengkapan tier-3 di Reruntuhan Fajar: **Pedang Fajar** dan **Perisai
   Fajar**.
+- Penampilan hero mengikuti perlengkapan yang dipakai: pedang kayu, perunggu,
+  besi, dan Fajar tampil di tangan, sedangkan armor kain, kulit, rantai, dan
+  pelat Fajar mengubah warna tubuh, pelat bahu, serta perisai.
 - Musik chiptune dan efek suara prosedural, dengan **crossfade** saat lagu
   berganti dan jeda otomatis saat jendela kehilangan fokus.
 - Halaman **Menu > Audio** untuk mengatur volume musik, volume efek, dan
@@ -363,8 +366,9 @@ peta (BFS) untuk empat peta, collision, portal dan segel Batu Matahari, peti,
 dialog, toko, penginapan, seluruh alur pertarungan termasuk Penjaga Fajar, misi
 Petani Ruslan, quest utama, simpan/muat (termasuk tiga slot, autosave, berkas
 rusak, dan kompatibilitas versi 1), pengaturan audio/layar penuh, layar judul
-beserta konfirmasi dan halaman muat, menu enam baris, jurnal, minimap, game over,
-ending, determinisme render, ikon jendela, ekspor PNG, pemetaan warna X11, render
+beserta konfirmasi dan halaman muat, menu enam baris, jurnal, minimap, variasi
+visual senjata/armor pada sprite hero, game over, ending, determinisme render,
+ikon jendela, ekspor PNG, pemetaan warna X11, render
 setiap state permainan, serta sintesis audio (durasi, puncak, loop mulus,
 determinisme) dan pengaturan volume/bisukan/jeda tanpa perangkat suara. Tes tidak
 pernah membuka perangkat audio sehingga tetap senyap dan deterministik.
