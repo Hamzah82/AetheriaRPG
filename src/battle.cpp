@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "art.h"
+#include "audio.h"
 
 namespace rpg {
 
@@ -79,9 +80,14 @@ void Battle::begin(Player& p, EnemyType type, bool boss, uint64_t seed) {
     done_ = false;
     victory_ = false;
     fled_ = false;
+    if (boss_) sfx(SfxId::BossRoar);
 }
 
 void Battle::pushMessage(const std::string& m) { messages_.push_back(m); }
+
+void Battle::sfx(SfxId id) {
+    if (audio_) audio_->playSfx(id);
+}
 
 void Battle::goCommand() {
     phase_ = Phase::Command;
@@ -100,6 +106,7 @@ void Battle::playerAttack(Player& p) {
     bool crit = rng_.chance(0.10f);
     int dmg = damageRoll(rng_, p.atk() * 2 - info_.def, 2);
     if (crit) dmg = dmg * 3 / 2;
+    sfx(crit ? SfxId::Crit : SfxId::Attack);
     enemyHp_ = clampInt(enemyHp_ - dmg, 0, enemyMaxHp_);
     effect_ = 4;
     effectT_ = 0.0f;
@@ -131,6 +138,7 @@ void Battle::castFire(Player& p) {
         return;
     }
     p.mp -= cost;
+    sfx(SfxId::Fire);
     int dmg = damageRoll(rng_, 10 + p.level * 4, 3);
     bool weak = info_.weak == 1;
     if (weak) dmg = dmg * 3 / 2;
@@ -165,6 +173,7 @@ void Battle::castThunder(Player& p) {
         return;
     }
     p.mp -= cost;
+    sfx(SfxId::Thunder);
     int dmg = damageRoll(rng_, 14 + p.level * 4, 3);
     bool weak = info_.weak == 2;
     if (weak) dmg = dmg * 3 / 2;
@@ -200,6 +209,7 @@ void Battle::castHeal(Player& p) {
         return;
     }
     p.mp -= cost;
+    sfx(SfxId::Heal);
     int amount = 20 + p.level * 5;
     int before = p.hp;
     p.healHp(amount);
@@ -225,6 +235,7 @@ void Battle::useItem(Player& p, bool elixir) {
             effect_ = 3;
             effectT_ = 0.0f;
             healT_ = 0.5f;
+            sfx(SfxId::Potion);
             pushMessage("Kau memakai Eliksir. (+25 MP)");
             next_ = Next::EnemyTurn;
         }
@@ -237,6 +248,7 @@ void Battle::useItem(Player& p, bool elixir) {
             effect_ = 3;
             effectT_ = 0.0f;
             healT_ = 0.5f;
+            sfx(SfxId::Potion);
             pushMessage("Kau memakai Ramuan. (+40 HP)");
             next_ = Next::EnemyTurn;
         }
@@ -253,6 +265,7 @@ void Battle::tryFlee(Player& p) {
         pushMessage("Bayangan menahanmu! Kau tidak bisa kabur.");
         next_ = Next::EnemyTurn;
     } else if (rng_.chance(0.7f)) {
+        sfx(SfxId::Flee);
         pushMessage("Kau berhasil kabur!");
         next_ = Next::Fled;
     } else {
@@ -283,6 +296,7 @@ void Battle::enemyTurn(Player& p) {
         dmg = damageRoll(rng_, info_.atk * 2 - p.def(), 2);
     }
     if (!boss_ && rng_.chance(0.05f)) dmg = dmg * 3 / 2;
+    sfx(special && boss_ ? SfxId::BossRoar : SfxId::Hurt);
     p.hp = clampInt(p.hp - dmg, 0, p.maxHp);
     shakeT_ = special ? 0.35f : 0.2f;
     flashT_ = 0.15f;
@@ -308,6 +322,7 @@ void Battle::applyRewards(Player& p) {
     std::string lvl;
     p.gainXp(info_.xp, &lvl);
     levelMsg_ = lvl;
+    if (!levelMsg_.empty()) sfx(SfxId::LevelUp);
 }
 
 void Battle::finishMessages(Player& p) {
@@ -325,9 +340,11 @@ void Battle::finishMessages(Player& p) {
         case Next::Victory:
             applyRewards(p);
             phase_ = Phase::Victory;
+            sfx(SfxId::Victory);
             break;
         case Next::Defeat:
             phase_ = Phase::Defeat;
+            sfx(SfxId::Defeat);
             break;
         case Next::Fled:
             phase_ = Phase::Fled;
@@ -342,6 +359,16 @@ void Battle::update(float dt, const InputState& in, Player& p) {
     flashT_ = std::max(0.0f, flashT_ - dt);
     healT_ = std::max(0.0f, healT_ - dt);
     effectT_ += dt;
+
+    if (phase_ == Phase::Command || phase_ == Phase::SkillMenu || phase_ == Phase::ItemMenu) {
+        if (in.hit(Key::Up) || in.hit(Key::Down) || in.hit(Key::Left) || in.hit(Key::Right)) {
+            sfx(SfxId::MenuMove);
+        }
+        if (in.hit(Key::Confirm)) sfx(SfxId::MenuSelect);
+        if (in.hit(Key::Cancel)) sfx(SfxId::MenuCancel);
+    } else if (phase_ == Phase::Victory || phase_ == Phase::Defeat || phase_ == Phase::Fled) {
+        if (in.hit(Key::Confirm)) sfx(SfxId::MenuSelect);
+    }
 
     switch (phase_) {
         case Phase::Message: {

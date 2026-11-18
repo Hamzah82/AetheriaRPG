@@ -1,14 +1,16 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
-LDLIBS = -lX11
+LDLIBS = -lX11 -ldl -pthread
+TEST_LDLIBS = -ldl -pthread
 BUILD = build
 SRC = src/gfx.cpp src/player.cpp src/world.cpp src/art.cpp src/battle.cpp \
-      src/game.cpp src/game_render.cpp src/platform.cpp src/main.cpp
+      src/game.cpp src/game_render.cpp src/audio_synth.cpp src/audio.cpp \
+      src/platform.cpp src/main.cpp
 OBJ = $(addprefix $(BUILD)/,$(notdir $(SRC:.cpp=.o)))
-DEPS = $(OBJ:.o=.d)
 TEST_SRC = tests/test_main.cpp src/gfx.cpp src/player.cpp src/world.cpp src/art.cpp \
-           src/battle.cpp src/game.cpp src/game_render.cpp
+           src/battle.cpp src/game.cpp src/game_render.cpp src/audio_synth.cpp src/audio.cpp
 TEST_OBJ = $(addprefix $(BUILD)/,$(notdir $(TEST_SRC:.cpp=.o)))
+DEPS = $(sort $(OBJ:.o=.d) $(TEST_OBJ:.o=.d))
 
 .PHONY: all test clean run shots
 
@@ -27,7 +29,7 @@ $(BUILD):
 	mkdir -p $(BUILD)
 
 tests/run_tests: $(TEST_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJ) $(TEST_LDLIBS)
 
 test: tests/run_tests
 	./tests/run_tests

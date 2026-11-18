@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "art.h"
+#include "audio.h"
 #include "game.h"
 
 namespace rpg {
@@ -296,15 +297,16 @@ void Game::renderMenu(Framebuffer& fb) {
     fb.text(292 - static_cast<int>(g.size()) * 6, 28, g, pal::gold);
 
     if (menuPage_ == 0) {
-        const char* labels[4] = {"Item", "Status", "Simpan", "Tutup"};
-        const char* desc[4] = {
+        const char* labels[5] = {"Item", "Status", "Simpan", "Audio", "Tutup"};
+        const char* desc[5] = {
             "Gunakan ramuan dan eliksir.",
             "Lihat statistik dan misi.",
             "Simpan kemajuan permainan.",
+            "Atur musik dan efek suara.",
             "Kembali menjelajah.",
         };
-        for (int i = 0; i < 4; ++i) {
-            int y = 54 + i * 22;
+        for (int i = 0; i < 5; ++i) {
+            int y = 50 + i * 20;
             bool sel = i == menuIndex_;
             if (sel) fb.fillRect(30, y - 4, 110, 18, pal::uiPanelLight);
             fb.text(48, y, labels[i], sel ? pal::white : pal::uiTextDim);
@@ -360,7 +362,7 @@ void Game::renderMenu(Framebuffer& fb) {
                 pal::uiText);
         if (menuMessageTimer_ > 0.0f) fb.text(28, 152, menuMessage_, pal::hpLight);
         fb.text(28, 176, "Z: pakai   X: kembali", pal::uiTextDim);
-    } else {
+    } else if (menuPage_ == 2) {
         fb.text(28, 50, "STATUS", pal::uiTextDim);
         fb.text(38, 66, "BAGUS", pal::uiText);
         std::string lv = "Lv " + std::to_string(player_.level);
@@ -397,6 +399,35 @@ void Game::renderMenu(Framebuffer& fb) {
             qy += 11;
         }
         fb.text(28, 190, "X: kembali", pal::uiTextDim);
+    } else {
+        fb.text(28, 50, "AUDIO", pal::uiTextDim);
+        if (!audio_) {
+            fb.text(38, 74, "Audio tidak tersedia.", pal::uiText);
+            fb.text(38, 90, "Perangkat suara tidak aktif atau game", pal::uiTextDim);
+            fb.text(38, 102, "dijalankan dengan --no-audio.", pal::uiTextDim);
+            fb.text(28, 176, "X: kembali", pal::uiTextDim);
+        } else {
+            const char* labels[4] = {"Musik", "Efek Suara", "Bisukan", "Kembali"};
+            for (int i = 0; i < 4; ++i) {
+                int y = 66 + i * 24;
+                bool sel = i == menuIndex_;
+                if (sel) fb.fillRect(30, y - 5, 252, 20, pal::uiPanelLight);
+                fb.text(38, y, labels[i], sel ? pal::white : pal::uiTextDim);
+                if (sel) cursorArrow(fb, 32, y + 1, pal::uiBorder);
+            }
+            float mv = audio_->musicVolume();
+            float sv = audio_->sfxVolume();
+            bar(fb, 128, 65, 108, 7, mv, pal::mp, pal::mpDark);
+            bar(fb, 128, 89, 108, 7, sv, pal::hp, pal::hpDark);
+            std::string mPct = std::to_string(static_cast<int>(std::lround(mv * 100.0f))) + "%";
+            std::string sPct = std::to_string(static_cast<int>(std::lround(sv * 100.0f))) + "%";
+            fb.text(244, 64, mPct, menuIndex_ == 0 ? pal::gold : pal::uiTextDim);
+            fb.text(244, 88, sPct, menuIndex_ == 1 ? pal::gold : pal::uiTextDim);
+            fb.text(128, 110, audio_->muted() ? "Ya" : "Tidak",
+                    menuIndex_ == 2 ? pal::gold : pal::uiText);
+            if (menuIndex_ == 3) fb.text(128, 134, "Kembali ke menu", pal::uiTextDim);
+            fb.text(28, 176, "Kiri/kanan: ubah   Z: pilih   X: kembali", pal::uiTextDim);
+        }
     }
 
     if (menuMessageTimer_ > 0.0f && menuPage_ != 1) {

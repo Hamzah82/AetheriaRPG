@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "art.h"
+#include "audio.h"
 #include "game.h"
 #include "gfx.h"
 #include "platform.h"
@@ -22,6 +23,7 @@ struct Options {
     std::string savePath = "savegame.dat";
     std::string screenshotDir;
     bool headless = false;
+    bool audio = true;
     bool showHelp = false;
 };
 
@@ -46,6 +48,8 @@ Options parseArgs(int argc, char** argv) {
             if (i + 1 < argc) o.screenshotDir = argv[++i];
         } else if (a == "--headless") {
             o.headless = true;
+        } else if (a == "--no-audio") {
+            o.audio = false;
         } else if (a == "--help" || a == "-h") {
             o.showHelp = true;
         }
@@ -74,6 +78,10 @@ int runScreenshots(const Options& opt) {
     Framebuffer fb;
     fb.resize(VIEW_W, VIEW_H);
     Game game(opt.seed, opt.savePath + ".shot");
+    // The screenshot run never opens an audio device, but a non-null Audio
+    // object lets the audio settings page render with its real controls.
+    Audio previewAudio;
+    game.setAudio(&previewAudio);
 
     auto tick = [&](int frames) {
         InputState empty;
@@ -154,19 +162,25 @@ int runScreenshots(const Options& opt) {
     pressKey(Key::Confirm);
     tick(4);
     save("11_status");
+    pressKey(Key::Cancel);
+    pressKey(Key::Down);
+    pressKey(Key::Down);
+    pressKey(Key::Confirm);
+    tick(4);
+    save("12_menu_audio");
 
     game.debugWarp(0, 14, 12);
     game.debugOpenShop();
     tick(6);
-    save("12_shop");
+    save("13_shop");
 
     game.debugGameOver();
     tick(6);
-    save("13_gameover");
+    save("14_gameover");
 
     game.debugStartEnding();
     tick(300);
-    save("14_ending");
+    save("15_ending");
     return 0;
 }
 
@@ -223,6 +237,7 @@ int main(int argc, char** argv) {
             "  --save PATH      lokasi berkas simpanan\n"
             "  --headless       uji jalan tanpa jendela\n"
             "  --frames N       jumlah frame uji headless\n"
+            "  --no-audio       jalankan tanpa musik dan efek suara\n"
             "  --screenshot DIR tulis tangkapan layar lalu keluar\n");
         return 0;
     }
@@ -239,7 +254,18 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    Audio audio;
+    if (opt.audio) {
+        std::string audioErr;
+        if (audio.init(&audioErr)) {
+            std::printf("audio: aktif (prosedural, 44100 Hz mono)\n");
+        } else {
+            std::fprintf(stderr, "audio: %s\n", audioErr.c_str());
+        }
+    }
+
     Game game(opt.seed, opt.savePath);
+    if (audio.available()) game.setAudio(&audio);
     Framebuffer fb;
     fb.resize(VIEW_W, VIEW_H);
     InputState in;

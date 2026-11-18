@@ -10,6 +10,8 @@
 #include <utility>
 #include <vector>
 
+#include "audio.h"
+#include "audio_synth.h"
 #include "battle.h"
 #include "game.h"
 #include "gfx.h"
@@ -1054,6 +1056,134 @@ void testMenusAndGameOver() {
     std::remove(path.c_str());
 }
 
+// ---------------------------------------------------------------- audio
+
+void testAudio() {
+    // Every track is deterministic, non-silent, and loopable.
+    for (int i = 1; i < static_cast<int>(MusicId::Count); ++i) {
+        MusicId id = static_cast<MusicId>(i);
+        std::vector<int16_t> a = buildMusic(id);
+        std::vector<int16_t> b = buildMusic(id);
+        CHECK(!a.empty());
+        CHECK(a == b);
+        float seconds = static_cast<float>(a.size()) / AUDIO_RATE;
+        CHECK(seconds > 1.0f);
+        CHECK(seconds < 15.0f);
+        int peak = 0;
+        for (int16_t v : a) peak = std::max(peak, std::abs(static_cast<int>(v)));
+        CHECK(peak > 4000);
+        CHECK(peak <= 32767);
+        // A clean loop point keeps the generated music free of clicks.
+        CHECK(std::abs(static_cast<int>(a.front())) <= 8);
+        CHECK(std::abs(static_cast<int>(a.back())) <= 8);
+        CHECK(std::strcmp(musicName(id), "?") != 0);
+    }
+    CHECK(std::strcmp(musicName(MusicId::None), "hening") == 0);
+    CHECK(buildMusic(MusicId::None).empty());
+
+    // Sound effects are short, audible one-shots.
+    for (int i = 0; i < static_cast<int>(SfxId::Count); ++i) {
+        SfxId id = static_cast<SfxId>(i);
+        std::vector<int16_t> a = buildSfx(id);
+        CHECK(!a.empty());
+        CHECK(a == buildSfx(id));
+        float seconds = static_cast<float>(a.size()) / AUDIO_RATE;
+        CHECK(seconds >= 0.05f);
+        CHECK(seconds <= 2.0f);
+        int peak = 0;
+        for (int16_t v : a) peak = std::max(peak, std::abs(static_cast<int>(v)));
+        CHECK(peak > 500);
+        CHECK(peak <= 32767);
+        CHECK(std::abs(static_cast<int>(a.front())) <= 64);
+        CHECK(std::strcmp(sfxName(id), "?") != 0);
+    }
+
+    // Audio without a device stays completely inert but keeps its settings.
+    Audio audio;
+    CHECK(!audio.available());
+    CHECK_NEAR(audio.musicVolume(), 0.62f);
+    CHECK_NEAR(audio.sfxVolume(), 0.78f);
+    CHECK(!audio.muted());
+    audio.playMusic(MusicId::Battle);
+    audio.playSfx(SfxId::Attack);
+    audio.stopMusic();
+    CHECK(!audio.available());
+    audio.setMusicVolume(2.5f);
+    audio.setSfxVolume(-1.0f);
+    CHECK_NEAR(audio.musicVolume(), 1.0f);
+    CHECK_NEAR(audio.sfxVolume(), 0.0f);
+    audio.toggleMute();
+    CHECK(audio.muted());
+    audio.toggleMute();
+    CHECK(!audio.muted());
+    audio.shutdown();
+    CHECK(!audio.available());
+
+    // Menu navigation: root has five rows and row 3 opens the audio page.
+    std::string path = tmpPath("rpgcpp_audio.dat");
+    Game g(41, path);
+    startExplore(g);
+    g.debugOpenMenu();
+    CHECK_EQ(g.debugMenuPage(), 0);
+    tap(g, Key::Down, 4);
+    CHECK_EQ(g.debugMenuIndex(), 4);
+    tap(g, Key::Down);
+    CHECK_EQ(g.debugMenuIndex(), 0);
+    tap(g, Key::Up);
+    CHECK_EQ(g.debugMenuIndex(), 4);
+    tap(g, Key::Up);
+    tap(g, Key::Confirm);
+    CHECK_EQ(g.debugMenuPage(), 3);
+    CHECK_EQ(g.debugMenuIndex(), 0);
+
+    // Without an Audio object the page reports unavailability and backs out.
+    tap(g, Key::Confirm);
+    CHECK_EQ(g.debugMenuPage(), 0);
+    CHECK_EQ(g.debugMenuIndex(), 3);
+    tap(g, Key::Confirm);
+    CHECK_EQ(g.debugMenuPage(), 3);
+    tap(g, Key::Cancel);
+    CHECK_EQ(g.debugMenuPage(), 0);
+    tap(g, Key::Cancel);
+    CHECK(g.state() == GameState::Explore);
+
+    // With an Audio object the page edits and clamps live settings.
+    Audio settings;
+    g.setAudio(&settings);
+    g.debugOpenMenu();
+    tap(g, Key::Up);  // root row 0 -> 4
+    tap(g, Key::Up);  // root row 4 -> 3
+    CHECK_EQ(g.debugMenuIndex(), 3);
+    tap(g, Key::Confirm);
+    CHECK_EQ(g.debugMenuPage(), 3);
+    CHECK_EQ(g.debugMenuIndex(), 0);
+    tap(g, Key::Right, 5);
+    CHECK_NEAR(settings.musicVolume(), 1.0f);
+    tap(g, Key::Left, 20);
+    CHECK_NEAR(settings.musicVolume(), 0.0f);
+    tap(g, Key::Down);
+    CHECK_EQ(g.debugMenuIndex(), 1);
+    tap(g, Key::Right, 3);
+    CHECK_NEAR(settings.sfxVolume(), 1.0f);
+    tap(g, Key::Down);
+    CHECK_EQ(g.debugMenuIndex(), 2);
+    tap(g, Key::Confirm);
+    CHECK(settings.muted());
+    tap(g, Key::Confirm);
+    CHECK(!settings.muted());
+    tap(g, Key::Down);
+    CHECK_EQ(g.debugMenuIndex(), 3);
+    tap(g, Key::Confirm);
+    CHECK_EQ(g.debugMenuPage(), 0);
+    CHECK_EQ(g.debugMenuIndex(), 3);
+    tap(g, Key::Cancel);
+    CHECK(g.state() == GameState::Explore);
+    g.setAudio(nullptr);
+    CHECK(g.state() == GameState::Explore);
+
+    std::remove(path.c_str());
+}
+
 // ---------------------------------------------------------------- rendering
 
 void testRender() {
@@ -1152,6 +1282,10 @@ void testRender() {
     tap(g, Key::Confirm);
     renderState("menu-status");
     tap(g, Key::Cancel);
+    tap(g, Key::Down, 2);
+    tap(g, Key::Confirm);
+    renderState("menu-audio");
+    tap(g, Key::Cancel);
     tap(g, Key::Cancel);
     g.debugOpenShop();
     renderState("shop");
@@ -1231,6 +1365,7 @@ int main() {
     testQuestFlow();
     testPortalsAndCollision();
     testMenusAndGameOver();
+    testAudio();
     testRender();
     testDisplayPixels();
     std::printf("%d checks, %d failures\n", gChecks, gFailures);

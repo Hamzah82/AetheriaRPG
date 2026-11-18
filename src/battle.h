@@ -3,12 +3,15 @@
 #include <string>
 #include <vector>
 
+#include "audio_synth.h"
 #include "core.h"
 #include "gfx.h"
 #include "player.h"
 #include "world.h"
 
 namespace rpg {
+
+class Audio;
 
 struct EnemyInfo {
     EnemyType type;
@@ -29,6 +32,7 @@ public:
     enum class Phase { Message, Command, SkillMenu, ItemMenu, Victory, Defeat, Fled };
 
     void begin(Player& p, EnemyType type, bool boss, uint64_t seed);
+    void setAudio(Audio* audio) { audio_ = audio; }
     void update(float dt, const InputState& in, Player& p);
     void render(Framebuffer& fb, const Player& p, float time);
 
@@ -52,6 +56,7 @@ private:
     enum class Next { Command, EnemyTurn, Victory, Defeat, Fled };
 
     void pushMessage(const std::string& m);
+    void sfx(SfxId id);
     void finishMessages(Player& p);
     void goCommand();
     void playerAttack(Player& p);
@@ -69,6 +74,7 @@ private:
     void renderEnemyInfo(Framebuffer& fb) const;
     void renderStatus(Framebuffer& fb, const Player& p, int x, int y, int w) const;
 
+    Audio* audio_ = nullptr;
     EnemyInfo info_{EnemyType::Slime, "Slime", 1, 10, 3, 1, 5, 3, 0};
     int enemyHp_ = 10;
     int enemyMaxHp_ = 10;

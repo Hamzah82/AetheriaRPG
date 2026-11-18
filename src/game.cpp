@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "art.h"
+#include "audio.h"
 
 namespace rpg {
 
@@ -33,6 +34,53 @@ Game::Game(uint64_t seed, std::string savePath) : rng_(seed), savePath_(std::mov
     py_ = 18 * TILE;
     facing_ = 1;
     updateCamera(100.0f);
+}
+
+void Game::setAudio(Audio* audio) {
+    audio_ = audio;
+    battle_.setAudio(audio);
+    updateMusic();
+}
+
+void Game::playSfx(SfxId id) {
+    if (audio_) audio_->playSfx(id);
+}
+
+void Game::updateMusic() {
+    if (!audio_) return;
+    MusicId track = MusicId::None;
+    switch (state_) {
+        case GameState::Title:
+            track = MusicId::Title;
+            break;
+        case GameState::Explore:
+        case GameState::Dialogue:
+        case GameState::Menu:
+        case GameState::Shop:
+            if (map_ == 1) track = MusicId::Overworld;
+            else if (map_ == 2) track = MusicId::Cave;
+            else track = MusicId::Village;
+            break;
+        case GameState::Battle:
+            track = battle_.isBoss() ? MusicId::Boss : MusicId::Battle;
+            break;
+        case GameState::GameOver:
+            track = MusicId::None;
+            break;
+        case GameState::Ending:
+            track = MusicId::Ending;
+            break;
+    }
+    if (track == MusicId::None) audio_->stopMusic();
+    else audio_->playMusic(track);
+}
+
+void Game::menuFeedback(const InputState& in) {
+    if (in.hit(Key::Up) || in.hit(Key::Down) || in.hit(Key::Left) || in.hit(Key::Right)) {
+        playSfx(SfxId::MenuMove);
+    }
+    if (in.hit(Key::Confirm)) playSfx(SfxId::MenuSelect);
+    if (in.hit(Key::Cancel)) playSfx(SfxId::MenuCancel);
 }
 
 void Game::newGame() {
@@ -432,6 +480,7 @@ void Game::updateParticles(float dt) {
 }
 
 void Game::onStep() {
+    playSfx(SfxId::Step);
     int tx = tileOfX(px_ + 8.0f);
     int ty = tileOfY(py_ + 13.0f);
     ++stepsSinceBattle_;
@@ -472,6 +521,7 @@ void Game::checkPortal() {
     if (!portal) return;
     int target = portal->targetMap, sx = portal->spawnX, sy = portal->spawnY, sd = portal->spawnDir;
     portalCooldown_ = 1.4f;
+    playSfx(SfxId::Portal);
     startTransition([this, target, sx, sy, sd] { changeMap(target, sx, sy, sd); });
 }
 
@@ -533,6 +583,7 @@ void Game::openChest(const ChestSpawn& chest, int index) {
             msg = "Peti kosong.";
             break;
     }
+    playSfx(chest.item == ItemId::Gold ? SfxId::Coin : SfxId::Chest);
     startDialogue("Peti Harta", {msg}, [this] { state_ = GameState::Explore; });
 }
 
@@ -634,6 +685,7 @@ void Game::innTalk() {
     }
     player_.gold -= 10;
     player_.fullRestore();
+    playSfx(SfxId::Heal);
     spawnBurst(px_ + 8.0f, py_ + 8.0f, 18, 0xFF8CFFB0u, 26.0f);
     addFloat(px_ + 8.0f, py_ - 4.0f, "PULIH!", 0xFF8CFFB0u);
     startDialogue("Pemilik Penginapan",
@@ -711,6 +763,7 @@ void Game::useFieldItem(bool elixir) {
         } else {
             player_.useElixir();
             menuMessage_ = "Eliksir digunakan. MP pulih.";
+            playSfx(SfxId::Potion);
         }
     } else {
         if (player_.potions <= 0) {
@@ -720,8 +773,10 @@ void Game::useFieldItem(bool elixir) {
         } else {
             player_.usePotion();
             menuMessage_ = "Ramuan digunakan. HP pulih.";
+            playSfx(SfxId::Potion);
         }
     }
+    if (menuMessage_.find("digunakan") == std::string::npos) playSfx(SfxId::MenuCancel);
     menuMessageTimer_ = 2.4f;
 }
 
@@ -729,14 +784,17 @@ void Game::saveFromMenu() {
     std::string err;
     if (saveGame(&err)) {
         menuMessage_ = "Permainan disimpan.";
+        playSfx(SfxId::Save);
     } else {
         menuMessage_ = err.empty() ? "Gagal menyimpan." : err;
+        playSfx(SfxId::MenuCancel);
     }
     menuMessageTimer_ = 2.6f;
 }
 
 void Game::updateTitle(float dt, const InputState& in) {
     titleTime_ += dt;
+    menuFeedback(in);
     titleMsgTimer_ = std::max(0.0f, titleMsgTimer_ - dt);
     if (in.hit(Key::Up)) titleIndex_ = (titleIndex_ + 2) % 3;
     if (in.hit(Key::Down)) titleIndex_ = (titleIndex_ + 1) % 3;
@@ -833,6 +891,7 @@ void Game::updateDialogue(float dt, const InputState& in) {
     }
     ++dlg_.page;
     dlg_.chars = 0.0f;
+    playSfx(SfxId::MenuMove);
     if (dlg_.page >= static_cast<int>(dlg_.pages.size())) closeDialogue();
 }
 
@@ -873,9 +932,10 @@ void Game::updateBattle(float dt, const InputState& in) {
 
 void Game::updateMenu(float dt, const InputState& in) {
     menuMessageTimer_ = std::max(0.0f, menuMessageTimer_ - dt);
+    menuFeedback(in);
     if (menuPage_ == 0) {
-        if (in.hit(Key::Up)) menuIndex_ = (menuIndex_ + 3) % 4;
-        if (in.hit(Key::Down)) menuIndex_ = (menuIndex_ + 1) % 4;
+        if (in.hit(Key::Up)) menuIndex_ = (menuIndex_ + 4) % 5;
+        if (in.hit(Key::Down)) menuIndex_ = (menuIndex_ + 1) % 5;
         if (in.hit(Key::Cancel)) {
             closeMenu();
             return;
@@ -886,8 +946,12 @@ void Game::updateMenu(float dt, const InputState& in) {
                 menuIndex_ = 0;
             } else if (menuIndex_ == 1) {
                 menuPage_ = 2;
+                menuIndex_ = 0;
             } else if (menuIndex_ == 2) {
                 saveFromMenu();
+            } else if (menuIndex_ == 3) {
+                menuPage_ = 3;
+                menuIndex_ = 0;
             } else {
                 closeMenu();
             }
@@ -900,16 +964,45 @@ void Game::updateMenu(float dt, const InputState& in) {
             return;
         }
         if (in.hit(Key::Confirm)) useFieldItem(menuIndex_ == 1);
-    } else {
+    } else if (menuPage_ == 2) {
         if (in.hit(Key::Cancel) || in.hit(Key::Confirm)) {
             menuPage_ = 0;
-            menuIndex_ = 0;
+            menuIndex_ = 1;
+        }
+    } else {
+        if (audio_) {
+            if (in.hit(Key::Up)) menuIndex_ = (menuIndex_ + 3) % 4;
+            if (in.hit(Key::Down)) menuIndex_ = (menuIndex_ + 1) % 4;
+            if (in.hit(Key::Left) || in.hit(Key::Right)) {
+                float delta = in.hit(Key::Left) ? -0.1f : 0.1f;
+                if (menuIndex_ == 0) {
+                    audio_->setMusicVolume(audio_->musicVolume() + delta);
+                } else if (menuIndex_ == 1) {
+                    audio_->setSfxVolume(audio_->sfxVolume() + delta);
+                }
+            }
+            if (in.hit(Key::Confirm)) {
+                if (menuIndex_ == 2) {
+                    audio_->toggleMute();
+                } else if (menuIndex_ == 3) {
+                    menuPage_ = 0;
+                    menuIndex_ = 3;
+                }
+            }
+            if (in.hit(Key::Cancel)) {
+                menuPage_ = 0;
+                menuIndex_ = 3;
+            }
+        } else if (in.hit(Key::Cancel) || in.hit(Key::Confirm)) {
+            menuPage_ = 0;
+            menuIndex_ = 3;
         }
     }
 }
 
 void Game::updateShop(float dt, const InputState& in) {
     shopMessageTimer_ = std::max(0.0f, shopMessageTimer_ - dt);
+    menuFeedback(in);
     if (in.hit(Key::Up)) shopIndex_ = (shopIndex_ + SHOP_COUNT - 1) % SHOP_COUNT;
     if (in.hit(Key::Down)) shopIndex_ = (shopIndex_ + 1) % SHOP_COUNT;
     if (in.hit(Key::Cancel) || in.hit(Key::Menu)) {
@@ -921,8 +1014,10 @@ void Game::updateShop(float dt, const InputState& in) {
     if (player_.gold < item.price) {
         shopMessage_ = "Emasmu tidak cukup.";
         shopMessageTimer_ = 2.2f;
+        playSfx(SfxId::MenuCancel);
         return;
     }
+    int goldBefore = player_.gold;
     if (item.kind == 0) {
         player_.potions = std::min(99, player_.potions + 1);
         player_.gold -= item.price;
@@ -948,11 +1043,13 @@ void Game::updateShop(float dt, const InputState& in) {
             shopMessage_ = std::string(item.name) + " dibeli!";
         }
     }
+    playSfx(player_.gold < goldBefore ? SfxId::Coin : SfxId::MenuCancel);
     shopMessageTimer_ = 2.2f;
 }
 
 void Game::updateGameOver(float dt, const InputState& in) {
     (void)dt;
+    menuFeedback(in);
     if (in.hit(Key::Up) || in.hit(Key::Down)) gameOverIndex_ = 1 - gameOverIndex_;
     if (!in.hit(Key::Confirm)) return;
     if (gameOverIndex_ == 0) {
@@ -977,6 +1074,7 @@ void Game::updateGameOver(float dt, const InputState& in) {
 
 void Game::updateEnding(float dt, const InputState& in) {
     endingScroll_ += dt * 22.0f;
+    if (in.hit(Key::Confirm) && endingScroll_ > 100.0f) playSfx(SfxId::MenuSelect);
     if (in.hit(Key::Confirm) && endingScroll_ > 100.0f) {
         state_ = GameState::Title;
         titleIndex_ = 0;
@@ -992,6 +1090,7 @@ void Game::update(float dt, const InputState& in) {
 
     if (transition_) {
         updateTransition(dt);
+        updateMusic();
         return;
     }
 
@@ -1005,6 +1104,7 @@ void Game::update(float dt, const InputState& in) {
         case GameState::GameOver: updateGameOver(dt, in); break;
         case GameState::Ending: updateEnding(dt, in); break;
     }
+    updateMusic();
 }
 
 void Game::debugWarp(int map, int tx, int ty) {

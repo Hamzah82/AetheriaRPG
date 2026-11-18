@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "audio_synth.h"
 #include "battle.h"
 #include "core.h"
 #include "gfx.h"
@@ -11,6 +12,8 @@
 #include "world.h"
 
 namespace rpg {
+
+class Audio;
 
 enum class GameState { Title, Explore, Dialogue, Battle, Menu, Shop, GameOver, Ending };
 
@@ -86,11 +89,17 @@ public:
     bool saveGame(std::string* err = nullptr);
     bool loadGame(std::string* err = nullptr);
 
+    // Audio is optional; passing nullptr (or never calling this) keeps the
+    // game completely silent, which tests and screenshot runs rely on.
+    void setAudio(Audio* audio);
+
     // Debug/test hooks (also used by the screenshot tool).
     void debugWarp(int map, int tx, int ty);
     void debugSetFacing(int facing);
     void debugStartBattle(EnemyType type, bool boss);
     void debugOpenMenu();
+    int debugMenuPage() const { return menuPage_; }
+    int debugMenuIndex() const { return menuIndex_; }
     void debugInteract();
     void debugAdvanceDialogue();
     bool debugChestOpened(int map, int index) const;
@@ -142,6 +151,9 @@ private:
 
     void updateCamera(float dt);
     void clampPlayerToMap();
+    void updateMusic();
+    void menuFeedback(const InputState& in);
+    void playSfx(SfxId id);
     int tileOfX(float x) const { return static_cast<int>(std::floor(x / TILE)); }
     int tileOfY(float y) const { return static_cast<int>(std::floor(y / TILE)); }
 
@@ -170,6 +182,7 @@ private:
     Vec2 camera_;
     Rng rng_;
     std::string savePath_;
+    Audio* audio_ = nullptr;
     bool quit_ = false;
 
     int titleIndex_ = 0;
@@ -188,7 +201,7 @@ private:
 
     std::vector<std::vector<bool>> chestOpened_;
 
-    int menuPage_ = 0;  // 0 root, 1 items, 2 status
+    int menuPage_ = 0;  // 0 root, 1 items, 2 status, 3 audio
     int menuIndex_ = 0;
     std::string menuMessage_;
     float menuMessageTimer_ = 0.0f;

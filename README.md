@@ -1,8 +1,8 @@
 # Aetheria: Bayangan Terakhir
 
 RPG 2D berbahasa Indonesia yang ditulis dengan C++17 dan X11. Seluruh grafis, font,
-dan efek dibuat secara prosedural; tidak ada berkas aset eksternal dan tidak ada
-dependensi SFML/SDL.
+efek, musik, dan suara dibuat secara prosedural; tidak ada berkas aset eksternal
+dan tidak ada dependensi SFML/SDL.
 
 Pemain menjelajahi Desa Elmwood, Padang Aetheria, dan Gua Bayangan untuk merebut
 kembali Batu Matahari dari Warden Bayangan.
@@ -15,6 +15,8 @@ kembali Batu Matahari dari Warden Bayangan.
 - Monster Slime, Kelelawar, dan Serigala dengan kelemahan elemen masing-masing.
 - Sistem level, XP, emas, senjata, armor, dan ramuan.
 - Toko, penginapan, menu status, serta simpan/muat permainan.
+- Musik chiptune dan efek suara prosedural yang mengikuti state permainan, dengan
+  halaman **Menu > Audio** untuk mengatur volume musik, volume efek, dan bisukan.
 - Boss Warden Bayangan dengan pertarungan khusus, dialog, dan ending.
 - Renderer software 320×240 yang diperbesar ke jendela X11 (bawaan 3× menjadi
   960×720), sehingga tampilan tetap tajam dan ringan.
@@ -26,6 +28,8 @@ kembali Batu Matahari dari Warden Bayangan.
 - Compiler C++17 (`g++` atau `clang++`).
 - `make`.
 - Header pengembangan X11 (`libX11`).
+- Opsional: `libasound.so.2` untuk musik dan efek suara. Tanpa pustaka atau
+  perangkat audio, game tetap berjalan dalam mode senyap.
 
 Di Debian/Ubuntu/Linux Mint:
 
@@ -33,7 +37,9 @@ Di Debian/Ubuntu/Linux Mint:
 sudo apt install build-essential libx11-dev
 ```
 
-Tidak diperlukan pustaka grafis lain.
+Tidak diperlukan pustaka grafis lain. Header ALSA **tidak** dibutuhkan karena
+`libasound.so.2` dimuat saat runtime; cukup paket runtime `libasound2` yang
+biasanya sudah terpasang.
 
 ## Build dan Menjalankan
 
@@ -62,7 +68,8 @@ make clean               # hapus hasil build
 
 Saat dialog, tombol konfirmasi atau batal akan mempercepat teks lalu melanjutkan
 ke halaman berikutnya. Di dalam pertarungan, gunakan tombol arah untuk memilih
-perintah dan `X` untuk kembali dari submenu Sihir/Item.
+perintah dan `X` untuk kembali dari submenu Sihir/Item. Di halaman **Audio**,
+tombol kiri/kanan mengubah volume atau pilihan, `Z` memilih, dan `X` kembali.
 
 ## Alur Permainan
 
@@ -108,6 +115,22 @@ Toko Rilla di Desa Elmwood menjual:
 Item yang lebih kuat hanya dapat dibeli sekali dan tidak menurunkan kualitas
 perlengkapan yang sudah dimiliki.
 
+## Musik dan Efek Suara
+
+Seluruh audio disintesis saat program berjalan dengan gelombang kotak, segitiga,
+sinus, gergaji, dan noise; tidak ada berkas musik atau suara yang dimuat.
+
+- Tujuh lagu latar: judul, desa, padang, gua, pertarungan, boss, dan ending.
+  Lagu berganti otomatis mengikuti state permainan dan peta.
+- Efek suara untuk langkah, menu, peti, koin, ramuan, serangan, serangan kritis,
+  luka, sihir api/petir, pulih, kabur, menang, kalah, naik level, simpan, portal,
+  dan auman boss.
+- **Menu > Audio** menyediakan pengaturan volume musik, volume efek suara, dan
+  bisukan. Pengaturan berlaku langsung tanpa perlu menyimpan permainan.
+- Audio bersifat opsional. Jika `libasound.so.2` atau perangkat suara tidak
+  tersedia, game menampilkan pesan dan berjalan tanpa suara.
+- Gunakan `--no-audio` untuk mematikan audio sepenuhnya sejak awal.
+
 ## Simpan dan Muat
 
 - Menu utama saat menjelajah memiliki pilihan **Simpan**.
@@ -126,6 +149,7 @@ perlengkapan yang sudah dimiliki.
   --save PATH      lokasi berkas simpanan
   --headless       uji jalan tanpa jendela
   --frames N       jumlah frame uji headless
+  --no-audio       jalankan tanpa musik dan efek suara
   --screenshot DIR tulis tangkapan layar lalu keluar
   --help, -h       tampilkan bantuan
 ```
@@ -134,6 +158,7 @@ Contoh:
 
 ```bash
 ./rpgcpp --scale 4
+./rpgcpp --no-audio
 ./rpgcpp --headless --frames 1200
 ./rpgcpp --screenshot /tmp/opencode/shots
 ```
@@ -150,6 +175,8 @@ src/gfx.h/.cpp      framebuffer, font bitmap, ekspor PNG
 src/player.h/.cpp   statistik pemain, item, senjata, armor
 src/world.h/.cpp    data peta, portal, NPC, peti, collision
 src/art.h/.cpp      sprite dan tile prosedural
+src/audio_synth.h/.cpp musik dan efek suara prosedural
+src/audio.h/.cpp    pemutaran ALSA runtime, pencampuran, volume
 src/battle.h/.cpp   logika dan tampilan pertarungan
 src/game.h          antarmuka Game dan hook pengujian
 src/game.cpp        state machine, dialog, quest, toko, simpan/muat
@@ -169,8 +196,10 @@ make test
 Tes mencakup RNG dan matematika dasar, statistik pemain, leveling, konektivitas
 peta (BFS), collision, portal, peti, dialog, toko, penginapan, seluruh alur
 pertarungan, simpan/muat (termasuk berkas rusak), menu, game over, ending,
-determinisme render, ekspor PNG, pemetaan warna X11, dan render setiap state
-permainan.
+determinisme render, ekspor PNG, pemetaan warna X11, render setiap state
+permainan, serta sintesis audio (durasi, puncak, loop mulus, determinisme) dan
+pengaturan volume/bisukan tanpa perangkat suara. Tes tidak pernah membuka
+perangkat audio sehingga tetap senyap dan deterministik.
 
 Uji asap tanpa jendela:
 
@@ -194,6 +223,11 @@ headless ok: frames=1200 state=1 map=0 hp=42 checksum=...
   headless dan deterministik dengan benih acak tetap.
 - Font 5×7 dan seluruh sprite digambar langsung ke framebuffer, tanpa memuat
   berkas gambar.
+- Mesin audio memakai satu thread pencampuran dengan potongan 512 frame pada
+  44100 Hz mono S16. `libasound.so.2` dimuat melalui `dlopen`, sehingga build
+  tidak memerlukan header ALSA dan game tetap bisa dijalankan tanpa audio.
+- Musik dan efek suara dibangkitkan secara deterministik dari not dan parameter
+  tetap; hasilnya sama pada setiap mesin dan dapat diuji tanpa perangkat suara.
 
 ## Pemecahan Masalah
 
@@ -202,5 +236,9 @@ headless ok: frames=1200 state=1 map=0 hp=42 checksum=...
 - **Gagal build karena `X11/Xlib.h` tidak ditemukan**: pasang `libx11-dev`.
 - **Jendela tidak menerima input**: klik jendela sekali untuk memberi fokus,
   lalu gunakan tombol arah dan `Z`/`Enter`.
+- **Tidak ada suara**: pastikan `libasound.so.2` dan perangkat audio tersedia,
+  cek pesan `audio:` saat mulai, lalu buka **Menu > Audio** untuk memastikan
+  volume tidak nol dan bisukan tidak aktif. Gunakan `--no-audio` jika ingin
+  memastikan mode senyap.
 - **Ingin mulai dari awal**: hapus `savegame.dat` atau jalankan dengan
   `--save` ke lokasi berkas baru.
