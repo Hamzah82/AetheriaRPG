@@ -1,0 +1,4 @@
+// aetheria.rc - icon embedded in the Windows executable
+#include <windows.h>
+
+IDI_ICON1 ICON "aetheria.ico"

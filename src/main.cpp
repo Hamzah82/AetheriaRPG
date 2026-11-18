@@ -7,7 +7,18 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <process.h>
+#else
 #include <unistd.h>
+#endif
 
 #include "art.h"
 #include "audio.h"
@@ -269,9 +280,26 @@ void runHeadless(const Options& opt) {
                 static_cast<unsigned long long>(hash));
 }
 
+#ifdef _WIN32
+// The game is linked as a GUI application so double-clicking it does not leave
+// a console window behind. When it is started from a terminal, borrow that
+// console so --headless, --screenshot, and diagnostics keep printing.
+void attachParentConsole() {
+    if (!AttachConsole(ATTACH_PARENT_PROCESS)) return;
+    std::freopen("CONOUT$", "w", stdout);
+    std::freopen("CONOUT$", "w", stderr);
+    std::freopen("CONIN$", "r", stdin);
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    std::setvbuf(stderr, nullptr, _IONBF, 0);
+}
+#endif
+
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    attachParentConsole();
+#endif
     Options opt = parseArgs(argc, argv);
     if (opt.showHelp) {
         std::printf(
@@ -377,16 +405,45 @@ int main(int argc, char** argv) {
     audio.shutdown();
 
     if (restart) {
-        // The running inode may be a deleted file after an update, so prefer
-        // the path the updater just produced instead of /proc/self/exe.
+        // The running executable may already be a replaced file after an
+        // update, so prefer the path the updater just produced.
         std::string target = updater.restartPath();
+#ifdef _WIN32
+        if (target.empty()) {
+            std::vector<char> module(MAX_PATH);
+            for (;;) {
+                DWORD n = GetModuleFileNameA(nullptr, module.data(),
+                                             static_cast<DWORD>(module.size()));
+                if (n == 0) break;
+                if (n < module.size()) {
+                    target.assign(module.data(), n);
+                    break;
+                }
+                module.resize(module.size() * 2);
+            }
+        }
+#else
         if (target.empty()) target = "/proc/self/exe";
+#endif
         std::printf("memulai ulang: %s\n", target.c_str());
         std::fflush(stdout);
+#ifdef _WIN32
+        std::vector<const char*> childArgs;
+        childArgs.reserve(static_cast<size_t>(argc) + 1);
+        for (int i = 0; i < argc; ++i) childArgs.push_back(argv[i]);
+        childArgs.push_back(nullptr);
+        if (_spawnv(_P_NOWAIT, target.c_str(), childArgs.data()) == -1) {
+            std::fprintf(stderr, "gagal memulai ulang %s: %s\n", target.c_str(),
+                         std::strerror(errno));
+            return 1;
+        }
+        return 0;
+#else
         execv(target.c_str(), argv);
         std::fprintf(stderr, "gagal memulai ulang %s: %s\n", target.c_str(),
                      std::strerror(errno));
         return 1;
+#endif
     }
     return 0;
 }

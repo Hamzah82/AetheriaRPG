@@ -1,8 +1,9 @@
 # Aetheria: Bayangan Terakhir
 
-RPG 2D berbahasa Indonesia yang ditulis dengan C++17 dan X11. Seluruh grafis, font,
-efek, musik, dan suara dibuat secara prosedural; tidak ada berkas aset eksternal
-dan tidak ada dependensi SFML/SDL.
+RPG 2D berbahasa Indonesia yang ditulis dengan C++17. Jendela memakai X11 di
+Linux dan Win32/GDI di Windows. Seluruh grafis, font, efek, musik, dan suara
+dalam game dibuat secara prosedural; satu-satunya aset adalah ikon aplikasi,
+tanpa dependensi SFML/SDL.
 
 Pemain menjelajahi Desa Elmwood, Padang Aetheria, Gua Bayangan, dan Reruntuhan
 Fajar untuk merebut kembali Batu Matahari dari Warden Bayangan, lalu menghadapi
@@ -31,18 +32,21 @@ Penjaga Fajar di reruntuhan kuno.
   berganti dan jeda otomatis saat jendela kehilangan fokus.
 - Halaman **Menu > Audio** untuk mengatur volume musik, volume efek, dan
   bisukan; pengaturan disimpan ke `settings.cfg`.
-- Renderer software 320×240 yang diperbesar ke jendela X11 (bawaan 3× menjadi
-  960×720), sehingga tampilan tetap tajam dan ringan.
+- Renderer software 320×240 yang diperbesar ke jendela X11 atau Win32 (bawaan
+  3× menjadi 960×720), sehingga tampilan tetap tajam dan ringan.
 - Mode layar penuh dengan penskalaan integer dan bilah hitam; tekan `F11` atau
   `Alt+Enter` untuk beralih. Pilihan layar penuh ikut tersimpan.
-- Ikon jendela dan launcher desktop SVG yang dipasang otomatis oleh
+- Ikon jendela prosedural di kedua platform, launcher desktop SVG di Linux, dan
+  ikon `.exe` serta shortcut Start Menu di Windows, dipasang otomatis oleh
   `install.sh`.
 - Mode `--headless` dan `--screenshot` untuk pengujian tanpa jendela, serta
   workflow CI GitHub Actions.
 
 ## Kebutuhan
 
-- Linux dengan sesi X11 (misalnya Linux Mint, Ubuntu, Debian).
+### Linux
+
+- Sesi X11 (misalnya Linux Mint, Ubuntu, Debian).
 - Compiler C++17 (`g++` atau `clang++`).
 - `make`.
 - Git (`git`) untuk instalasi cepat dan menu **Perbarui Game**.
@@ -60,6 +64,26 @@ Tidak diperlukan pustaka grafis lain. Header ALSA **tidak** dibutuhkan karena
 `libasound.so.2` dimuat saat runtime; cukup paket runtime `libasound2` yang
 biasanya sudah terpasang.
 
+### Windows
+
+- Windows 10 atau 11 (64-bit).
+- Git for Windows (menyertakan **Git Bash**), atau MSYS2.
+- Compiler MinGW-w64 dan `make` dari MSYS2. `install.sh` dapat memasang MSYS2
+  dan toolchain-nya otomatis lewat `winget`.
+- Git untuk instalasi cepat dan menu **Perbarui Game**.
+
+Cara termudah: pasang **Git for Windows** dan **MSYS2**, lalu buka
+**MSYS2 MinGW 64-bit** dan jalankan:
+
+```bash
+pacman -S --needed mingw-w64-x86_64-gcc make git
+```
+
+Alternatifnya, buka **Git Bash** di folder proyek dan jalankan `./install.sh`;
+skrip akan menawarkan pemasangan MSYS2 lewat `winget` bila compiler belum ada.
+Game memakai `winmm` untuk audio dan tidak membutuhkan DLL runtime MinGW karena
+biner ditautkan secara statis.
+
 ## Instalasi Cepat
 
 Cara termudah untuk memeriksa dependensi, membangun, dan memasang game:
@@ -71,22 +95,24 @@ chmod +x install.sh
 
 Skrip akan:
 
-1. Memeriksa compiler C++17, `make`, `git`, dan header X11.
+1. Memeriksa compiler C++17, `make`, `git`, serta header X11 (Linux) atau
+   compiler MinGW-w64 dan pustaka Win32 (Windows).
 2. Menawarkan pemasangan paket yang kurang melalui manajer paket distro
-   (`apt`, `dnf`, `pacman`, `zypper`, atau `apk`).
+   (`apt`, `dnf`, `pacman`, `zypper`, atau `apk`) atau, di Windows, melalui
+   MSYS2/pacman dan `winget`.
 3. Mengkloning sumber dari GitHub ke `~/.aetheria/source` bila belum ada, atau
    memperbaruinya dengan `git pull --ff-only` saat pemasangan ulang.
 4. Membangun game dari salinan sumber itu dan menjalankan uji asap `--headless`.
-5. Memasang biner, peluncur, launcher desktop, dan ikon SVG ke
-   `~/.local/share/applications/aetheria.desktop` serta
-   `~/.local/share/icons/hicolor/scalable/apps/aetheria.svg`.
+5. Memasang biner dan peluncur. Di Linux juga dipasang launcher desktop serta
+   ikon SVG; di Windows dipasang `Aetheria.bat` dan shortcut Start Menu, dan
+   ikon tertanam di `rpgcpp.exe`.
 
 Semua kebutuhan game disatukan dalam satu folder:
 
 ```text
 ~/.aetheria/
-  rpgcpp                 biner game
-  aetheria               peluncur; menjalankan game dari folder ini
+  rpgcpp                 biner game (Windows: rpgcpp.exe)
+  aetheria               peluncur Linux (Windows: Aetheria.bat)
   settings.cfg           pengaturan audio dan layar penuh
   savegame.dat           Slot 1 (dibuat saat menyimpan)
   savegame-2.dat         Slot 2
@@ -95,9 +121,11 @@ Semua kebutuhan game disatukan dalam satu folder:
   source/                salinan Git sumber game untuk menu Perbarui Game
 ```
 
-Ikon aplikasi dipasang ke
-`~/.local/share/icons/hicolor/scalable/apps/aetheria.svg`, dan launcher desktop
-memakai `Icon=aetheria` sehingga tema ikon dapat menemukannya.
+Di Windows folder ini berada di `C:\Users\<nama>\.aetheria`. Ikon aplikasi Linux
+dipasang ke `~/.local/share/icons/hicolor/scalable/apps/aetheria.svg`, dan
+launcher desktop memakai `Icon=aetheria` sehingga tema ikon dapat menemukannya.
+Di Windows, `rpgcpp.exe` membawa ikonnya sendiri dan shortcut Start Menu memakai
+ikon tersebut.
 
 Opsi yang tersedia:
 
@@ -111,7 +139,7 @@ Opsi yang tersedia:
 | `--clean` | Hapus hasil build sebelum membangun. |
 | `--no-deps` | Jangan pasang dependensi otomatis. |
 | `-y`, `--yes` | Jawab ya saat diminta memasang paket. |
-| `--uninstall` | Hapus biner, peluncur, dan launcher desktop; simpanan dan sumber dipertahankan. |
+| `--uninstall` | Hapus biner, peluncur, dan launcher/shortcut; simpanan dan sumber dipertahankan. |
 | `-h`, `--help` | Tampilkan bantuan. |
 
 Contoh:
@@ -123,11 +151,12 @@ Contoh:
 ./install.sh --uninstall
 ```
 
-Jalankan game lewat menu aplikasi atau `~/.aetheria/aetheria`. Skrip uninstall
-tidak menghapus berkas `savegame*.dat`, `settings.cfg`, maupun salinan sumber di
+Jalankan game lewat menu aplikasi, shortcut Start Menu, `~/.aetheria/aetheria`
+(Linux), atau `~/.aetheria/Aetheria.bat` (Windows). Skrip uninstall tidak
+menghapus berkas `savegame*.dat`, `settings.cfg`, maupun salinan sumber di
 `~/.aetheria/source`; folder game hanya dihapus bila sudah kosong. Instalasi lama
-di `~/.local/bin/rpgcpp` dibersihkan otomatis. Berkas simpanan lama yang berada di
-folder lain perlu dipindahkan manual ke `~/.aetheria/savegame.dat`.
+di `~/.local/bin/rpgcpp` dibersihkan otomatis di Linux. Berkas simpanan lama yang
+berada di folder lain perlu dipindahkan manual ke `~/.aetheria/savegame.dat`.
 
 ## Perbarui Game dari Judul
 
@@ -142,7 +171,7 @@ Game** akan:
 2. Membangun ulang game dengan `make -jN` memakai compiler yang tersedia.
 3. Menguji biner baru dengan `--headless --frames 30`.
 4. Memasang biner baru ke lokasi instalasi bila game dijalankan dari luar
-   checkout (misalnya `~/.aetheria/rpgcpp`).
+   checkout (misalnya `~/.aetheria/rpgcpp` atau `rpgcpp.exe`).
 5. Menampilkan **Mulai Ulang** setelah berhasil; tekan `Z` untuk menjalankan
    versi baru.
 
@@ -159,11 +188,37 @@ yang sama. Untuk checkout di lokasi lain, set
 `AETHERIA_REPO=/path/ke/sumber` sebelum menjalankan game. Pada mode `--headless`
 dan `--screenshot`, menu pembaruan tidak menjalankan perintah apa pun.
 
+Di Windows, menu **Perbarui Game** memerlukan `git` dan `make` di `PATH`
+(misalnya dengan membuka **MSYS2 MinGW 64-bit**), dan `AETHERIA_REPO` menerima
+path Windows. Bila toolchain tidak tersedia dari shortcut, jalankan
+`./install.sh` lagi; skrip itu menarik sumber terbaru lalu membangun ulang dan
+memasang binernya.
+
 ## Build dan Menjalankan
+
+Linux:
 
 ```bash
 make -j4
 ./rpgcpp
+```
+
+Windows (dari **MSYS2 MinGW 64-bit**, **Git Bash** dengan toolchain MinGW-w64 di
+`PATH`, atau silang dari Linux):
+
+```bash
+make -j4
+./rpgcpp.exe
+```
+
+Makefile mendeteksi Windows dari compiler (`-dumpmachine` berisi `mingw`) atau
+variabel `OS=Windows_NT`, lalu memakai akhiran `.exe`, subsistem GUI, penautan
+statis, dan pustaka `gdi32`, `user32`, serta `winmm`. Set `WINDOWS=1` untuk
+memaksa mode Windows dan `WINDRES=...` bila `windres` tidak ada di `PATH`.
+Kompilasi silang dari Linux misalnya:
+
+```bash
+make CXX=x86_64-w64-mingw32-g++ WINDRES=x86_64-w64-mingw32-windres
 ```
 
 Perintah lain yang tersedia:
@@ -347,8 +402,11 @@ src/settings.h/.cpp pengaturan audio/layar penuh yang tersimpan
 src/savegame.h/.cpp penamaan slot, metadata, dan ringkasan simpanan
 src/updater.h/.cpp  git pull dan build ulang dari menu judul
 src/platform.h/.cpp jendela X11, input, fokus, ikon, presentasi piksel
+src/platform_win32.cpp jendela Win32/GDI, input, fokus, ikon, presentasi piksel
 src/main.cpp        CLI, loop utama, headless, screenshot
-assets/aetheria.svg ikon aplikasi untuk launcher desktop
+assets/aetheria.svg ikon aplikasi untuk launcher desktop Linux
+assets/aetheria.ico ikon aplikasi Windows (multi-ukuran)
+assets/aetheria.rc  resource ikon yang ditanam ke rpgcpp.exe
 tests/test_main.cpp rangkaian tes regresi
 Makefile            target build, test, run, shots, clean
 install.sh          kloning sumber, build, instalasi, uninstall
@@ -391,28 +449,35 @@ headless ok: frames=1200 state=1 map=0 hp=42 checksum=...
 
 ## Catatan Teknis
 
-- Resolusi internal tetap 320×240; presentasi X11 memakai penskalaan
+- Resolusi internal tetap 320×240; presentasi X11 dan Win32 memakai penskalaan
   nearest-neighbour agar piksel tetap tegas.
-- Warna piksel dipetakan ke mask merah/hijau/biru milik visual X11, sehingga
-  tampilan benar pada layout RGB maupun BGR (termasuk kanal 10-bit).
-- Layar penuh memakai `_NET_WM_STATE_FULLSCREEN`. Framebuffer diperbesar dengan
-  skala integer terbesar yang muat lalu dipusatkan; sisa ruang menjadi bilah
-  hitam sehingga rasio 4:3 tidak berubah dan piksel tetap tegas.
-- Logika permainan tidak bergantung pada X11, sehingga dapat diuji secara
-  headless dan deterministik dengan benih acak tetap.
+- Di Linux, warna piksel dipetakan ke mask merah/hijau/biru milik visual X11,
+  sehingga tampilan benar pada layout RGB maupun BGR (termasuk kanal 10-bit).
+  Di Windows, framebuffer disalin ke DIB 32-bit lalu diperbesar dengan
+  `StretchBlt` mode `COLORONCOLOR` agar piksel tidak dihaluskan.
+- Layar penuh memakai `_NET_WM_STATE_FULLSCREEN` di X11 dan jendela tanpa border
+  di Win32. Framebuffer diperbesar dengan skala integer terbesar yang muat lalu
+  dipusatkan; sisa ruang menjadi bilah hitam sehingga rasio 4:3 tidak berubah
+  dan piksel tetap tegas.
+- Logika permainan tidak bergantung pada backend jendela, sehingga dapat diuji
+  secara headless dan deterministik dengan benih acak tetap.
 - Font 5×7 dan seluruh sprite digambar langsung ke framebuffer, tanpa memuat
   berkas gambar.
 - Mesin audio memakai satu thread pencampuran dengan potongan 512 frame pada
-  44100 Hz mono S16. `libasound.so.2` dimuat melalui `dlopen`, sehingga build
-  tidak memerlukan header ALSA dan game tetap bisa dijalankan tanpa audio.
+  44100 Hz mono S16. Di Linux `libasound.so.2` dimuat melalui `dlopen`, sehingga
+  build tidak memerlukan header ALSA; di Windows output memakai `waveOut` dari
+  `winmm` dengan dua buffer bergantian. Tanpa pustaka atau perangkat audio, game
+  tetap berjalan dalam mode senyap.
 - Musik dan efek suara dibangkitkan secara deterministik dari not dan parameter
   tetap; hasilnya sama pada setiap mesin dan dapat diuji tanpa perangkat suara.
 - Perpindahan lagu memakai dua trek dengan fade 0,35 detik. Saat jendela tidak
   fokus, loop utama berhenti memperbarui simulasi dan audio dijeda dengan
   `Audio::setPaused`, lalu melanjutkan tanpa melompat karena akumulasi waktu
   tetap diperbarui.
-- Ikon jendela digambar secara prosedural sebagai data ARGB untuk `_NET_WM_ICON`;
-  ikon launcher desktop memakai SVG terpisah agar tetap tajam di berbagai ukuran.
+- Ikon jendela di Linux digambar secara prosedural sebagai data ARGB untuk
+  `_NET_WM_ICON`; di Windows ikon dimuat dari resource `.ico` yang ditanam ke
+  `rpgcpp.exe`. Ikon launcher desktop Linux memakai SVG terpisah agar tetap
+  tajam di berbagai ukuran.
 
 ## Pemecahan Masalah
 
@@ -420,14 +485,26 @@ headless ok: frames=1200 state=1 map=0 hp=42 checksum=...
   `DISPLAY` yang benar, atau gunakan `--headless`.
 - **Gagal build karena `X11/Xlib.h` tidak ditemukan**: pasang `libx11-dev`
   atau jalankan `./install.sh` yang akan menawarkan pemasangan dependensi.
+- **Windows: `g++` tidak ditemukan atau build gagal pada `windows.h`**: buka
+  **MSYS2 MinGW 64-bit**, pasang
+  `pacman -S --needed mingw-w64-x86_64-gcc make git`, lalu jalankan ulang
+  `./install.sh`.
+- **Windows: game tidak muncul saat dijalankan dari terminal**: biner memakai
+  subsistem GUI. Pesan `--headless`/`--help` tetap dicetak ke terminal asal
+  melalui `AttachConsole`; jika terminal tidak mendukungnya, jalankan lewat
+  `cmd /c rpgcpp.exe --help` atau periksa `settings.cfg`.
+- **Windows: SmartScreen memperingatkan biner tanpa tanda tangan**: pilih
+  **More info > Run anyway**, atau build sendiri dari sumber dengan
+  `./install.sh`.
 - **`git clone` gagal saat instalasi**: periksa koneksi dan alamat repositori,
   lalu jalankan `./install.sh --repo URL` untuk memakai fork atau cermin lokal.
 - **Jendela tidak menerima input**: klik jendela sekali untuk memberi fokus,
   lalu gunakan tombol arah dan `Z`/`Enter`.
-- **Tidak ada suara**: pastikan `libasound.so.2` dan perangkat audio tersedia,
-  cek pesan `audio:` saat mulai, lalu buka **Menu > Audio** untuk memastikan
-  volume tidak nol dan bisukan tidak aktif. Gunakan `--no-audio` jika ingin
-  memastikan mode senyap.
+- **Tidak ada suara**: di Linux pastikan `libasound.so.2` dan perangkat audio
+  tersedia; di Windows pastikan perangkat output aktif dan tidak dipakai mode
+  eksklusif. Cek pesan `audio:` saat mulai, lalu buka **Menu > Audio** untuk
+  memastikan volume tidak nol dan bisukan tidak aktif. Gunakan `--no-audio` jika
+  ingin memastikan mode senyap.
 - **Ingin mulai dari awal**: mulai **Mulai Baru** dari judul (konfirmasi muncul
   bila sudah ada simpanan), atau hapus `savegame*.dat` di folder game.
 - **Pengaturan tidak berubah**: periksa `settings.cfg` di folder game

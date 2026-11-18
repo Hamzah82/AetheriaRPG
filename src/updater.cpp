@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cctype>
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -15,9 +16,19 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 namespace rpg {
 
@@ -26,6 +37,12 @@ namespace {
 namespace fs = std::filesystem;
 
 constexpr size_t kMaxOutput = 8000;
+
+#ifdef _WIN32
+constexpr const char* kExeSuffix = ".exe";
+#else
+constexpr const char* kExeSuffix = "";
+#endif
 
 std::string trimCopy(std::string text) {
     while (!text.empty() && std::isspace(static_cast<unsigned char>(text.front()))) {
@@ -47,14 +64,38 @@ std::string readFirstLine(const fs::path& path) {
 }
 
 std::string currentExecutablePath() {
+#ifdef _WIN32
+    std::vector<char> buffer(MAX_PATH);
+    for (;;) {
+        DWORD n = GetModuleFileNameA(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (n == 0) return {};
+        if (n < buffer.size()) return std::string(buffer.data(), n);
+        buffer.resize(buffer.size() * 2);
+    }
+#else
     char buffer[4096];
     ssize_t n = readlink("/proc/self/exe", buffer, sizeof(buffer) - 1);
     if (n <= 0) return {};
     buffer[n] = '\0';
     return buffer;
+#endif
 }
 
 std::string findExecutablePath(const std::string& program) {
+#ifdef _WIN32
+    const bool pathLike = program.find('/') != std::string::npos ||
+                          program.find('\\') != std::string::npos ||
+                          (program.size() > 1 && program[1] == ':');
+    std::error_code ec;
+    if (pathLike) {
+        return fs::is_regular_file(program, ec) ? program : std::string();
+    }
+    std::vector<char> found(MAX_PATH * 2);
+    DWORD n = SearchPathA(nullptr, program.c_str(), ".exe",
+                          static_cast<DWORD>(found.size()), found.data(), nullptr);
+    if (n > 0 && n < found.size()) return std::string(found.data(), n);
+    return {};
+#else
     if (program.find('/') != std::string::npos) {
         return access(program.c_str(), X_OK) == 0 ? program : std::string();
     }
@@ -74,8 +115,10 @@ std::string findExecutablePath(const std::string& program) {
         start = end + 1;
     }
     return {};
+#endif
 }
 
+#ifndef _WIN32
 void writeStderr(const char* message) {
     const size_t length = std::strlen(message);
     size_t offset = 0;
@@ -85,6 +128,7 @@ void writeStderr(const char* message) {
         offset += static_cast<size_t>(n);
     }
 }
+#endif
 
 void appendCapped(std::string& output, const char* data, size_t size) {
     if (!data || size == 0) return;
@@ -94,6 +138,102 @@ void appendCapped(std::string& output, const char* data, size_t size) {
     }
 }
 
+#ifdef _WIN32
+// Quote one argument using the rules the Microsoft C runtime expects when it
+// parses a command line back into argv.
+std::string quoteWindowsArg(const std::string& arg) {
+    if (arg.empty()) return "\"\"";
+    if (arg.find_first_of(" \t\n\v\"") == std::string::npos) return arg;
+    std::string out = "\"";
+    for (auto it = arg.begin();; ++it) {
+        size_t backslashes = 0;
+        while (it != arg.end() && *it == '\\') {
+            ++it;
+            ++backslashes;
+        }
+        if (it == arg.end()) {
+            out.append(backslashes * 2, '\\');
+            break;
+        }
+        if (*it == '"') {
+            out.append(backslashes * 2 + 1, '\\');
+            out.push_back('"');
+        } else {
+            out.append(backslashes, '\\');
+            out.push_back(*it);
+        }
+    }
+    out.push_back('"');
+    return out;
+}
+
+int runCommand(const std::string& cwd, const std::vector<std::string>& args,
+               std::string* output) {
+    if (args.empty()) return 127;
+    std::string program = findExecutablePath(args[0]);
+    if (program.empty()) {
+        if (output) *output += "Perintah tidak ditemukan: " + args[0] + "\n";
+        return 127;
+    }
+
+    std::string commandLine = quoteWindowsArg(program);
+    for (size_t i = 1; i < args.size(); ++i) {
+        commandLine += " ";
+        commandLine += quoteWindowsArg(args[i]);
+    }
+
+    SECURITY_ATTRIBUTES security;
+    std::memset(&security, 0, sizeof(security));
+    security.nLength = sizeof(security);
+    security.bInheritHandle = TRUE;
+
+    HANDLE readPipe = nullptr;
+    HANDLE writePipe = nullptr;
+    if (!CreatePipe(&readPipe, &writePipe, &security, 0)) return 127;
+    SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+
+    HANDLE nullInput = CreateFileA("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                   &security, OPEN_EXISTING, 0, nullptr);
+
+    STARTUPINFOA startup;
+    std::memset(&startup, 0, sizeof(startup));
+    startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    startup.wShowWindow = SW_HIDE;
+    startup.hStdOutput = writePipe;
+    startup.hStdError = writePipe;
+    startup.hStdInput = nullInput != INVALID_HANDLE_VALUE ? nullInput
+                                                          : GetStdHandle(STD_INPUT_HANDLE);
+
+    PROCESS_INFORMATION process;
+    std::memset(&process, 0, sizeof(process));
+    std::vector<char> mutableCommand(commandLine.begin(), commandLine.end());
+    mutableCommand.push_back('\0');
+    BOOL started = CreateProcessA(nullptr, mutableCommand.data(), nullptr, nullptr, TRUE,
+                                  CREATE_NO_WINDOW, nullptr,
+                                  cwd.empty() ? nullptr : cwd.c_str(), &startup, &process);
+    CloseHandle(writePipe);
+    if (nullInput != INVALID_HANDLE_VALUE) CloseHandle(nullInput);
+    if (!started) {
+        CloseHandle(readPipe);
+        if (output) *output += "Gagal menjalankan perintah: " + args[0] + "\n";
+        return 127;
+    }
+
+    char buffer[4096];
+    DWORD got = 0;
+    while (ReadFile(readPipe, buffer, sizeof(buffer), &got, nullptr) && got > 0) {
+        if (output) appendCapped(*output, buffer, got);
+    }
+    CloseHandle(readPipe);
+    WaitForSingleObject(process.hProcess, INFINITE);
+    DWORD exitCode = 127;
+    if (!GetExitCodeProcess(process.hProcess, &exitCode)) exitCode = 127;
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return static_cast<int>(exitCode);
+}
+#else
 int runCommand(const std::string& cwd, const std::vector<std::string>& args,
                std::string* output) {
     if (args.empty()) return 127;
@@ -160,6 +300,7 @@ int runCommand(const std::string& cwd, const std::vector<std::string>& args,
     if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
     return 127;
 }
+#endif
 
 }  // namespace
 
@@ -212,8 +353,8 @@ struct Updater::Impl {
     void runImpl(const std::string& repo, const std::string& installPath) {
         std::error_code ec;
         const fs::path repoPath(repo);
-        const fs::path binary = repoPath / "rpgcpp";
-        const fs::path backup = repoPath / "rpgcpp.old";
+        const fs::path binary = repoPath / (std::string("rpgcpp") + kExeSuffix);
+        const fs::path backup = repoPath / (std::string("rpgcpp.old") + kExeSuffix);
 
         // Are we rebuilding the very binary that is running? Compare before
         // the old binary is renamed away.
@@ -305,8 +446,18 @@ struct Updater::Impl {
         } else if (!findExecutablePath("clang++").empty()) {
             compiler = "clang++";
         }
-        std::vector<std::string> makeArgs{"make", "-j" + std::to_string(jobs)};
-        std::string makeLabel = "$ make -j" + std::to_string(jobs);
+
+        std::string makeProgram = "make";
+#ifdef _WIN32
+        // MSYS2 ships mingw32-make under the MinGW toolchain; both work when
+        // sh.exe is on PATH, so use whichever name exists.
+        if (findExecutablePath("make").empty() &&
+            !findExecutablePath("mingw32-make").empty()) {
+            makeProgram = "mingw32-make";
+        }
+#endif
+        std::vector<std::string> makeArgs{makeProgram, "-j" + std::to_string(jobs)};
+        std::string makeLabel = "$ " + makeProgram + " -j" + std::to_string(jobs);
         if (!compiler.empty()) {
             makeArgs.push_back("CXX=" + compiler);
             makeLabel += " CXX=" + compiler;
@@ -352,6 +503,7 @@ struct Updater::Impl {
                          "Gagal memasang biner baru. Jalankan install.sh.");
                 return;
             }
+#ifndef _WIN32
             fs::permissions(temporary,
                             fs::perms::owner_all | fs::perms::group_read |
                                 fs::perms::group_exec | fs::perms::others_read |
@@ -365,7 +517,38 @@ struct Updater::Impl {
                          "Gagal mengatur izin biner baru.");
                 return;
             }
+#endif
+#ifdef _WIN32
+            // Windows keeps a running executable locked, but it can be
+            // renamed. Move the old copy aside, put the new one in place, then
+            // delete the leftover on the next launch.
+            fs::path stale = target;
+            stale += ".old";
+            std::error_code staleEc;
+            fs::remove(stale, staleEc);
+            bool movedAside = false;
+            if (fs::exists(target, ec)) {
+                ec.clear();
+                fs::rename(target, stale, ec);
+                if (ec) {
+                    std::error_code removeEc;
+                    fs::remove(temporary, removeEc);
+                    restore();
+                    complete(false, "Gagal memasang biner baru.",
+                             "Gagal mengganti biner lama. Jalankan install.sh.");
+                    return;
+                }
+                movedAside = true;
+            }
+            ec.clear();
             fs::rename(temporary, target, ec);
+            if (ec && movedAside) {
+                std::error_code undoEc;
+                fs::rename(stale, target, undoEc);
+            }
+#else
+            fs::rename(temporary, target, ec);
+#endif
             if (ec) {
                 std::error_code removeEc;
                 fs::remove(temporary, removeEc);
@@ -416,8 +599,22 @@ bool Updater::start(const std::string& repoDir, const std::string& installPath,
     }
     if (impl_->worker.joinable()) impl_->worker.join();
 
+#ifdef _WIN32
+    // The previous update may have left the replaced executable behind.
+    if (!installPath.empty()) {
+        std::error_code staleEc;
+        fs::path stale(installPath);
+        stale += ".old";
+        fs::remove(stale, staleEc);
+    }
+#endif
+
     // A background update must never block on a credential prompt.
+#ifdef _WIN32
+    _putenv_s("GIT_TERMINAL_PROMPT", "0");
+#else
     setenv("GIT_TERMINAL_PROMPT", "0", 1);
+#endif
 
     {
         std::lock_guard<std::mutex> lock(impl_->mutex);
@@ -527,6 +724,15 @@ std::string findSourceCheckout() {
     if (const char* data = std::getenv("XDG_DATA_HOME"); data && *data) {
         candidates.push_back((fs::path(data) / "aetheria" / "source").string());
     }
+#ifdef _WIN32
+    if (const char* profile = std::getenv("USERPROFILE"); profile && *profile) {
+        candidates.push_back(
+            (fs::path(profile) / ".aetheria" / "source").string());
+    }
+    if (const char* local = std::getenv("LOCALAPPDATA"); local && *local) {
+        candidates.push_back((fs::path(local) / "Aetheria" / "source").string());
+    }
+#endif
 
     for (const std::string& candidate : candidates) {
         if (candidate.empty()) continue;

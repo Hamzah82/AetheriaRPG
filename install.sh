@@ -5,6 +5,9 @@
 # diperlukan, mengkloning sumber ke ~/.aetheria/source, membangun game dari
 # salinan itu, lalu memasang biner dan peluncur. Launcher desktop dipasang
 # terpisah. Jalankan sebagai pengguna biasa; sudo hanya dipakai saat perlu.
+#
+# Linux: jendela X11. Windows: jalankan lewat Git Bash atau MSYS2; skrip
+# memakai compiler MinGW-w64 dan memasang shortcut Start Menu.
 set -Eeuo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
@@ -23,6 +26,11 @@ UNINSTALL=0
 CXX_BIN=""
 TMP_DESKTOP=""
 TMP_LAUNCHER=""
+TMP_SHORTCUT=""
+IS_WINDOWS=0
+EXE_SUFFIX=""
+MSYS2_BASH=""
+MSYS2_ROOT=""
 
 if [ -t 1 ]; then
     C_BOLD=$'\033[1m'
@@ -58,6 +66,9 @@ cleanup() {
     if [ -n "$TMP_LAUNCHER" ]; then
         rm -f "$TMP_LAUNCHER" || true
     fi
+    if [ -n "$TMP_SHORTCUT" ]; then
+        rm -f "$TMP_SHORTCUT" || true
+    fi
 }
 trap on_error ERR
 trap cleanup EXIT
@@ -71,6 +82,9 @@ Membangun dan memasang Aetheria: Bayangan Terakhir.
 Instalasi biasa mengkloning sumber dari GitHub ke folder game, lalu membangun
 game dari salinan itu. Pemasangan ulang memperbarui salinan tersebut dengan
 git pull --ff-only. Mode --build-only membangun checkout saat ini.
+
+Linux memakai jendela X11. Windows didukung lewat Git Bash atau MSYS2 dengan
+compiler MinGW-w64; skrip dapat memasang MSYS2 dan toolchain-nya otomatis.
 
 Opsi:
   --dir DIR       folder data game (bawaan: ~/.aetheria)
@@ -86,12 +100,14 @@ Opsi:
 
 Bawaan instalasi:
   folder game : ~/.aetheria
-  biner       : ~/.aetheria/rpgcpp
-  peluncur    : ~/.aetheria/aetheria
+  biner       : ~/.aetheria/rpgcpp (Windows: rpgcpp.exe)
+  peluncur    : ~/.aetheria/aetheria (Windows: Aetheria.bat)
   simpanan    : ~/.aetheria/savegame.dat
   sumber      : ~/.aetheria/source (salinan Git)
-  launcher    : ~/.local/share/applications/aetheria.desktop
-  ikon        : ~/.local/share/icons/hicolor/scalable/apps/aetheria.svg
+  launcher    : ~/.local/share/applications/aetheria.desktop (Linux)
+                shortcut Start Menu Aetheria.lnk (Windows)
+  ikon        : ~/.local/share/icons/hicolor/scalable/apps/aetheria.svg (Linux)
+                tertanam di rpgcpp.exe (Windows)
 
 Contoh:
   ./install.sh
@@ -109,6 +125,7 @@ expand_path() {
         "~/"*) path="$HOME/${path#\~/}" ;;
     esac
     case "$path" in
+        [A-Za-z]:[\\/]*) ;;
         /*) ;;
         *) path="$SCRIPT_DIR/$path" ;;
     esac
@@ -116,6 +133,24 @@ expand_path() {
         path="${path%/}"
     done
     printf '%s\n' "$path"
+}
+
+# cygpath converts between MSYS (/c/Users/...) and Windows (C:\Users\...)
+# paths. Outside Windows the helpers are harmless pass-throughs.
+to_posix() {
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -u "$1"
+    else
+        printf '%s\n' "$1"
+    fi
+}
+
+to_windows() {
+    if command -v cygpath >/dev/null 2>&1; then
+        cygpath -w "$1"
+    else
+        printf '%s\n' "$1"
+    fi
 }
 
 while [ $# -gt 0 ]; do
@@ -190,16 +225,38 @@ if [ "$REPO_EXPLICIT" -eq 1 ] && [ "$UNINSTALL" -eq 1 ]; then
     warn "Opsi --repo diabaikan pada mode --uninstall."
 fi
 
+# Windows is detected from the MSYS/MinGW uname or the native OS variable.
+case "$(uname -s 2>/dev/null || printf unknown)" in
+    MINGW*|MSYS*|CYGWIN*) IS_WINDOWS=1 ;;
+esac
+if [ "${OS:-}" = "Windows_NT" ]; then
+    IS_WINDOWS=1
+fi
+if [ "$IS_WINDOWS" -eq 1 ]; then
+    EXE_SUFFIX=".exe"
+fi
+
 GAME_DIR="$(expand_path "$GAME_DIR")"
-LAUNCHER="$GAME_DIR/aetheria"
+BINARY="$GAME_DIR/rpgcpp$EXE_SUFFIX"
 SOURCE_DIR="$GAME_DIR/source"
-APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-DESKTOP_FILE="$APPS_DIR/aetheria.desktop"
-ICONS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
-ICON_FILE="$ICONS_DIR/aetheria.svg"
+if [ "$IS_WINDOWS" -eq 1 ]; then
+    LAUNCHER="$GAME_DIR/Aetheria.bat"
+    APPS_DIR=""
+    DESKTOP_FILE=""
+    ICONS_DIR=""
+    ICON_FILE=""
+    START_MENU_DIR="$(to_posix "${APPDATA:-$HOME/AppData/Roaming}")/Microsoft/Windows/Start Menu/Programs"
+else
+    LAUNCHER="$GAME_DIR/aetheria"
+    APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+    DESKTOP_FILE="$APPS_DIR/aetheria.desktop"
+    ICONS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
+    ICON_FILE="$ICONS_DIR/aetheria.svg"
+    START_MENU_DIR=""
+fi
 
 if [ -z "$JOBS" ]; then
-    JOBS="$(nproc 2>/dev/null || printf '2')"
+    JOBS="$(nproc 2>/dev/null || printf '%s' "${NUMBER_OF_PROCESSORS:-2}")"
 fi
 JOBS="$(printf '%s' "$JOBS" | tr -d '[:space:]')"
 case "$JOBS" in
@@ -221,7 +278,7 @@ can_write() {
 as_priv() {
     local target="$1"
     shift
-    if [ "$EUID" -eq 0 ] || can_write "$target"; then
+    if [ "$IS_WINDOWS" -eq 1 ] || [ "$EUID" -eq 0 ] || can_write "$target"; then
         "$@"
     else
         command -v sudo >/dev/null 2>&1 ||
@@ -231,7 +288,7 @@ as_priv() {
 }
 
 as_root() {
-    if [ "$EUID" -eq 0 ]; then
+    if [ "$IS_WINDOWS" -eq 1 ] || [ "$EUID" -eq 0 ]; then
         "$@"
     else
         command -v sudo >/dev/null 2>&1 ||
@@ -241,8 +298,41 @@ as_root() {
 }
 
 resolve_compiler() {
+    if [ "$IS_WINDOWS" -eq 1 ] && find_msys2_bash; then
+        # Prefer the MinGW-w64 toolchain over an MSYS compiler, which would
+        # produce binaries that need the MSYS runtime DLL.
+        if [ "$MSYS2_ROOT" = "/" ] && [ -x /mingw64/bin/g++.exe ]; then
+            case ":$PATH:" in
+                *":/mingw64/bin:"*) ;;
+                *) PATH="/mingw64/bin:$PATH" ;;
+            esac
+        elif [ -n "$MSYS2_ROOT" ] && [ -x "$MSYS2_ROOT/mingw64/bin/g++.exe" ]; then
+            case ":$PATH:" in
+                *":$MSYS2_ROOT/mingw64/bin:"*) ;;
+                *) PATH="$MSYS2_ROOT/mingw64/bin:$MSYS2_ROOT/usr/bin:$PATH" ;;
+            esac
+        fi
+        export PATH
+    fi
+
     if [ -n "${CXX:-}" ] && command -v "${CXX}" >/dev/null 2>&1; then
         CXX_BIN="$CXX"
+    elif [ "$IS_WINDOWS" -eq 1 ]; then
+        local candidate
+        for candidate in g++ x86_64-w64-mingw32-g++ clang++; do
+            if command -v "$candidate" >/dev/null 2>&1 &&
+                "$candidate" -dumpmachine 2>/dev/null | grep -q mingw; then
+                CXX_BIN="$candidate"
+                return
+            fi
+        done
+        if command -v g++ >/dev/null 2>&1; then
+            CXX_BIN="g++"
+        elif command -v clang++ >/dev/null 2>&1; then
+            CXX_BIN="clang++"
+        else
+            CXX_BIN=""
+        fi
     elif command -v g++ >/dev/null 2>&1; then
         CXX_BIN="g++"
     elif command -v clang++ >/dev/null 2>&1; then
@@ -252,10 +342,89 @@ resolve_compiler() {
     fi
 }
 
-has_x11_headers() {
+has_platform_headers() {
     [ -n "$CXX_BIN" ] || return 1
+    if [ "$IS_WINDOWS" -eq 1 ]; then
+        "$CXX_BIN" -dumpmachine 2>/dev/null | grep -q mingw || return 1
+        local probe status
+        probe="$(mktemp "${TMPDIR:-/tmp}/aetheria-probe.XXXXXX")" || return 1
+        printf '#include <windows.h>\n#include <thread>\nint main(){std::thread t([]{});t.join();return 0;}\n' |
+            "$CXX_BIN" -x c++ - -o "$probe.exe" -lwinmm >/dev/null 2>&1
+        status=$?
+        rm -f "$probe" "$probe.exe"
+        return "$status"
+    fi
     printf '#include <X11/Xlib.h>\n' |
         "$CXX_BIN" -x c++ -E - >/dev/null 2>&1
+}
+
+# Locate an MSYS2 installation. Sets MSYS2_BASH and MSYS2_ROOT and returns 0
+# when one is usable. Inside MSYS2 the root is "/". Git Bash also has
+# /usr/bin/bash.exe and /mingw64, so pacman is the reliable marker.
+find_msys2_bash() {
+    [ "$IS_WINDOWS" -eq 1 ] || return 1
+    MSYS2_BASH=""
+    MSYS2_ROOT=""
+    if [ -x /usr/bin/bash.exe ] && [ -d /mingw64 ] &&
+        { [ -x /usr/bin/pacman.exe ] || [ -x /usr/bin/pacman ]; }; then
+        MSYS2_ROOT="/"
+        MSYS2_BASH="/usr/bin/bash.exe"
+        return 0
+    fi
+    local candidate
+    local roots=(
+        "/c/msys64"
+        "/c/msys2"
+        "$(to_posix "${LOCALAPPDATA:-/nonexistent}")/Programs/msys64"
+        "$(to_posix "${LOCALAPPDATA:-/nonexistent}")/msys64"
+        "$(to_posix "${ProgramFiles:-/nonexistent}")/msys64"
+    )
+    for candidate in "${roots[@]}"; do
+        if [ -x "$candidate/usr/bin/bash.exe" ] &&
+            { [ -x "$candidate/usr/bin/pacman.exe" ] || [ -x "$candidate/usr/bin/pacman" ]; }; then
+            MSYS2_ROOT="$candidate"
+            MSYS2_BASH="$candidate/usr/bin/bash.exe"
+            return 0
+        fi
+    done
+    return 1
+}
+
+install_dependencies_windows() {
+    local pacman_line
+    pacman_line='pacman -S --needed --noconfirm --disable-download-timeout mingw-w64-x86_64-gcc make git'
+
+    if find_msys2_bash; then
+        if [ "$MSYS2_ROOT" = "/" ] && command -v pacman >/dev/null 2>&1; then
+            info "Memasang compiler MinGW-w64, make, dan git..."
+            pacman -S --needed --noconfirm --disable-download-timeout \
+                mingw-w64-x86_64-gcc make git
+            return
+        fi
+        info "Memasang compiler MinGW-w64, make, dan git lewat MSYS2..."
+        MSYSTEM=MINGW64 "$MSYS2_BASH" -lc "$pacman_line"
+        return
+    fi
+
+    local winget_bin=""
+    if command -v winget.exe >/dev/null 2>&1; then
+        winget_bin="winget.exe"
+    elif command -v winget >/dev/null 2>&1; then
+        winget_bin="winget"
+    fi
+    if [ -z "$winget_bin" ]; then
+        die "MSYS2 belum terpasang. Pasang dari https://www.msys2.org/ lalu jalankan ulang ./install.sh."
+    fi
+
+    info "Memasang MSYS2 lewat winget..."
+    "$winget_bin" install --id MSYS2.MSYS2 -e --source winget \
+        --accept-package-agreements --accept-source-agreements --silent ||
+        warn "winget melaporkan kegagalan; mencari MSYS2 yang sudah ada."
+    if ! find_msys2_bash; then
+        die "MSYS2 belum ditemukan. Buka 'MSYS2 MinGW 64-bit' dari menu Start, lalu jalankan ./install.sh lagi."
+    fi
+    info "Memasang compiler MinGW-w64, make, dan git lewat MSYS2..."
+    MSYSTEM=MINGW64 "$MSYS2_BASH" -lc "$pacman_line"
 }
 
 detect_pkg_manager() {
@@ -275,6 +444,10 @@ detect_pkg_manager() {
 }
 
 install_dependencies() {
+    if [ "$IS_WINDOWS" -eq 1 ]; then
+        install_dependencies_windows
+        return
+    fi
     local pm
     pm="$(detect_pkg_manager)"
     case "$pm" in
@@ -308,6 +481,7 @@ install_dependencies() {
 }
 
 update_desktop_database() {
+    [ "$IS_WINDOWS" -eq 0 ] || return 0
     if command -v update-desktop-database >/dev/null 2>&1; then
         as_priv "$APPS_DIR" update-desktop-database "$APPS_DIR" >/dev/null 2>&1 ||
             true
@@ -315,6 +489,7 @@ update_desktop_database() {
 }
 
 update_icon_cache() {
+    [ "$IS_WINDOWS" -eq 0 ] || return 0
     local theme_dir="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor"
     if command -v gtk-update-icon-cache >/dev/null 2>&1; then
         as_priv "$theme_dir" gtk-update-icon-cache -f -t "$theme_dir" >/dev/null 2>&1 ||
@@ -323,6 +498,7 @@ update_icon_cache() {
 }
 
 remove_legacy_install() {
+    [ "$IS_WINDOWS" -eq 0 ] || return 0
     local old_bin="$HOME/.local/bin/rpgcpp"
     local old_marker="$HOME/.local/share/aetheria/source"
     local old_desktop="$HOME/.local/share/applications/aetheria.desktop"
@@ -388,7 +564,7 @@ prepare_source() {
 if [ "$UNINSTALL" -eq 1 ]; then
     info "Menghapus Aetheria dari $GAME_DIR..."
     removed=0
-    for file in "$GAME_DIR/rpgcpp" "$LAUNCHER"; do
+    for file in "$BINARY" "$BINARY.old" "$LAUNCHER" "$GAME_DIR/rpgcpp" "$GAME_DIR/aetheria"; do
         if [ -e "$file" ]; then
             as_priv "$GAME_DIR" rm -f "$file"
             ok "Dihapus: $file"
@@ -405,19 +581,29 @@ if [ "$UNINSTALL" -eq 1 ]; then
     if [ "$removed" -eq 0 ]; then
         warn "Tidak ada berkas Aetheria di $GAME_DIR"
     fi
-    if [ -e "$DESKTOP_FILE" ]; then
-        as_priv "$DESKTOP_FILE" rm -f "$DESKTOP_FILE"
-        update_desktop_database
-        ok "Launcher dihapus: $DESKTOP_FILE"
+    if [ "$IS_WINDOWS" -eq 1 ]; then
+        shortcut="$START_MENU_DIR/Aetheria.lnk"
+        if [ -e "$shortcut" ]; then
+            rm -f "$shortcut"
+            ok "Shortcut Start Menu dihapus: $shortcut"
+        else
+            warn "Shortcut Start Menu tidak ditemukan: $shortcut"
+        fi
     else
-        warn "Launcher tidak ditemukan: $DESKTOP_FILE"
-    fi
-    if [ -e "$ICON_FILE" ]; then
-        as_priv "$ICONS_DIR" rm -f "$ICON_FILE"
-        update_icon_cache
-        ok "Ikon dihapus: $ICON_FILE"
-    else
-        warn "Ikon tidak ditemukan: $ICON_FILE"
+        if [ -e "$DESKTOP_FILE" ]; then
+            as_priv "$DESKTOP_FILE" rm -f "$DESKTOP_FILE"
+            update_desktop_database
+            ok "Launcher dihapus: $DESKTOP_FILE"
+        else
+            warn "Launcher tidak ditemukan: $DESKTOP_FILE"
+        fi
+        if [ -e "$ICON_FILE" ]; then
+            as_priv "$ICONS_DIR" rm -f "$ICON_FILE"
+            update_icon_cache
+            ok "Ikon dihapus: $ICON_FILE"
+        else
+            warn "Ikon tidak ditemukan: $ICON_FILE"
+        fi
     fi
     remove_legacy_install
     if [ -d "$SOURCE_DIR" ]; then
@@ -448,8 +634,12 @@ fi
 if [ "$BUILD_ONLY" -eq 0 ] && ! command -v git >/dev/null 2>&1; then
     missing+=("git")
 fi
-if [ -n "$CXX_BIN" ] && ! has_x11_headers; then
-    missing+=("header X11 (libX11)")
+if [ -n "$CXX_BIN" ] && ! has_platform_headers; then
+    if [ "$IS_WINDOWS" -eq 1 ]; then
+        missing+=("compiler MinGW-w64 dan pustaka Win32")
+    else
+        missing+=("header X11 (libX11)")
+    fi
 fi
 
 if [ ${#missing[@]} -gt 0 ]; then
@@ -470,7 +660,7 @@ if [ ${#missing[@]} -gt 0 ]; then
     fi
     install_dependencies
     resolve_compiler
-    if [ -z "$CXX_BIN" ] || ! command -v make >/dev/null 2>&1 || ! has_x11_headers ||
+    if [ -z "$CXX_BIN" ] || ! command -v make >/dev/null 2>&1 || ! has_platform_headers ||
         { [ "$BUILD_ONLY" -eq 0 ] && ! command -v git >/dev/null 2>&1; }; then
         die "Dependensi masih belum lengkap setelah pemasangan. Periksa keluaran di atas."
     fi
@@ -493,52 +683,113 @@ fi
 
 info "Membangun Aetheria dengan $CXX_BIN -j$JOBS..."
 make -C "$BUILD_DIR" -j"$JOBS" CXX="$CXX_BIN"
-[ -x "$BUILD_DIR/rpgcpp" ] || die "Build selesai, tetapi biner rpgcpp tidak ditemukan."
+BUILD_BINARY="$BUILD_DIR/rpgcpp$EXE_SUFFIX"
+if [ ! -f "$BUILD_BINARY" ]; then
+    die "Build selesai, tetapi biner rpgcpp$EXE_SUFFIX tidak ditemukan."
+fi
 
 info "Menjalankan uji asap headless..."
-if ! "$BUILD_DIR/rpgcpp" --headless --frames 60 >/dev/null 2>&1; then
-    die "Uji asap gagal. Coba $BUILD_DIR/rpgcpp --headless --frames 60 untuk melihat kesalahan."
+if ! "$BUILD_BINARY" --headless --frames 60 >/dev/null 2>&1; then
+    die "Uji asap gagal. Coba $BUILD_BINARY --headless --frames 60 untuk melihat kesalahan."
 fi
 ok "Build dan uji asap berhasil."
 
 if [ "$BUILD_ONLY" -eq 1 ]; then
-    ok "Mode build-only: biner tersedia di $BUILD_DIR/rpgcpp"
-    printf '  Jalankan: %s\n' "$BUILD_DIR/rpgcpp"
+    ok "Mode build-only: biner tersedia di $BUILD_BINARY"
+    printf '  Jalankan: %s\n' "$BUILD_BINARY"
     exit 0
 fi
 
+mkdir -p "$GAME_DIR" || die "Tidak bisa membuat folder game: $GAME_DIR"
+
 remove_legacy_install
 
+# Create a Start Menu shortcut on Windows. The .bat launcher remains available
+# when PowerShell is missing or blocked by policy.
+install_windows_shortcut() {
+    [ "$IS_WINDOWS" -eq 1 ] || return 0
+    local powershell_bin=""
+    if command -v powershell.exe >/dev/null 2>&1; then
+        powershell_bin="powershell.exe"
+    elif command -v powershell >/dev/null 2>&1; then
+        powershell_bin="powershell"
+    fi
+    if [ -z "$powershell_bin" ]; then
+        warn "PowerShell tidak ditemukan; shortcut Start Menu dilewati."
+        return 0
+    fi
+    mkdir -p "$START_MENU_DIR" 2>/dev/null || true
+    local script target workdir link target_win
+    script="$(mktemp "${TMPDIR:-/tmp}/aetheria-shortcut.XXXXXX.ps1")"
+    TMP_SHORTCUT="$script"
+    target="$(to_windows "$BINARY")"
+    workdir="$(to_windows "$GAME_DIR")"
+    link="$(to_windows "$START_MENU_DIR/Aetheria.lnk")"
+    target_win="$(to_windows "$BINARY")"
+    cat >"$script" <<EOF
+\$shell = New-Object -ComObject WScript.Shell
+\$shortcut = \$shell.CreateShortcut('$link')
+\$shortcut.TargetPath = '$target'
+\$shortcut.WorkingDirectory = '$workdir'
+\$shortcut.IconLocation = '$target_win,0'
+\$shortcut.Description = 'Aetheria: Bayangan Terakhir'
+\$shortcut.Save()
+EOF
+    if "$powershell_bin" -NoProfile -ExecutionPolicy Bypass \
+        -File "$(to_windows "$script")" >/dev/null 2>&1; then
+        ok "Shortcut Start Menu: $START_MENU_DIR/Aetheria.lnk"
+    else
+        warn "Gagal membuat shortcut Start Menu; gunakan $LAUNCHER."
+    fi
+    rm -f "$script"
+    TMP_SHORTCUT=""
+}
+
 info "Memasang biner ke $GAME_DIR..."
-as_priv "$GAME_DIR" install -m 0755 "$BUILD_DIR/rpgcpp" "$GAME_DIR/rpgcpp"
-ok "Biner terpasang: $GAME_DIR/rpgcpp"
+as_priv "$GAME_DIR" install -m 0755 "$BUILD_BINARY" "$BINARY"
+ok "Biner terpasang: $BINARY"
 
 info "Memasang peluncur $LAUNCHER..."
-tmp_launcher="$(mktemp "${TMPDIR:-/tmp}/aetheria-launcher.XXXXXX")"
-TMP_LAUNCHER="$tmp_launcher"
-cat >"$tmp_launcher" <<'LAUNCHER'
+if [ "$IS_WINDOWS" -eq 1 ]; then
+    tmp_launcher="$(mktemp "${TMPDIR:-/tmp}/aetheria-launcher.XXXXXX.bat")"
+    TMP_LAUNCHER="$tmp_launcher"
+    cat >"$tmp_launcher" <<'LAUNCHER'
+@echo off
+rem Jalankan Aetheria dari folder game agar savegame.dat tetap di sini.
+cd /d "%~dp0"
+start "" "%~dp0rpgcpp.exe" %*
+LAUNCHER
+    as_priv "$GAME_DIR" install -m 0644 "$tmp_launcher" "$LAUNCHER"
+    rm -f "$tmp_launcher"
+    TMP_LAUNCHER=""
+    ok "Peluncur terpasang: $LAUNCHER"
+    install_windows_shortcut
+else
+    tmp_launcher="$(mktemp "${TMPDIR:-/tmp}/aetheria-launcher.XXXXXX")"
+    TMP_LAUNCHER="$tmp_launcher"
+    cat >"$tmp_launcher" <<'LAUNCHER'
 #!/bin/sh
 # Jalankan Aetheria dari folder game agar savegame.dat tetap di sini.
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1
 cd "$DIR" || exit 1
 exec ./rpgcpp "$@"
 LAUNCHER
-as_priv "$GAME_DIR" install -m 0755 "$tmp_launcher" "$LAUNCHER"
-rm -f "$tmp_launcher"
-TMP_LAUNCHER=""
-ok "Peluncur terpasang: $LAUNCHER"
+    as_priv "$GAME_DIR" install -m 0755 "$tmp_launcher" "$LAUNCHER"
+    rm -f "$tmp_launcher"
+    TMP_LAUNCHER=""
+    ok "Peluncur terpasang: $LAUNCHER"
 
-info "Memasang ikon aplikasi ke $ICONS_DIR..."
-[ -f "$BUILD_DIR/assets/aetheria.svg" ] || die "Ikon aplikasi tidak ditemukan: $BUILD_DIR/assets/aetheria.svg"
-as_priv "$ICONS_DIR" install -d -m 0755 "$ICONS_DIR"
-as_priv "$ICONS_DIR" install -m 0644 "$BUILD_DIR/assets/aetheria.svg" "$ICON_FILE"
-update_icon_cache
-ok "Ikon terpasang: $ICON_FILE"
+    info "Memasang ikon aplikasi ke $ICONS_DIR..."
+    [ -f "$BUILD_DIR/assets/aetheria.svg" ] || die "Ikon aplikasi tidak ditemukan: $BUILD_DIR/assets/aetheria.svg"
+    as_priv "$ICONS_DIR" install -d -m 0755 "$ICONS_DIR"
+    as_priv "$ICONS_DIR" install -m 0644 "$BUILD_DIR/assets/aetheria.svg" "$ICON_FILE"
+    update_icon_cache
+    ok "Ikon terpasang: $ICON_FILE"
 
-info "Memasang launcher desktop ke $APPS_DIR..."
-tmp_desktop="$(mktemp "${TMPDIR:-/tmp}/aetheria-desktop.XXXXXX.desktop")"
-TMP_DESKTOP="$tmp_desktop"
-cat >"$tmp_desktop" <<EOF
+    info "Memasang launcher desktop ke $APPS_DIR..."
+    tmp_desktop="$(mktemp "${TMPDIR:-/tmp}/aetheria-desktop.XXXXXX.desktop")"
+    TMP_DESKTOP="$tmp_desktop"
+    cat >"$tmp_desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Version=1.0
@@ -554,18 +805,19 @@ Categories=Game;RolePlaying;
 Keywords=RPG;game;fantasi;
 StartupNotify=true
 EOF
-if command -v desktop-file-validate >/dev/null 2>&1; then
-    desktop-file-validate "$tmp_desktop" ||
-        warn "Launcher memiliki peringatan validasi; tetap dipasang."
+    if command -v desktop-file-validate >/dev/null 2>&1; then
+        desktop-file-validate "$tmp_desktop" ||
+            warn "Launcher memiliki peringatan validasi; tetap dipasang."
+    fi
+    as_priv "$APPS_DIR" install -d "$APPS_DIR"
+    as_priv "$APPS_DIR" install -m 0644 "$tmp_desktop" "$DESKTOP_FILE"
+    rm -f "$tmp_desktop"
+    TMP_DESKTOP=""
+    update_desktop_database
+    ok "Launcher terpasang: $DESKTOP_FILE"
 fi
-as_priv "$APPS_DIR" install -d "$APPS_DIR"
-as_priv "$APPS_DIR" install -m 0644 "$tmp_desktop" "$DESKTOP_FILE"
-rm -f "$tmp_desktop"
-TMP_DESKTOP=""
-update_desktop_database
-ok "Launcher terpasang: $DESKTOP_FILE"
 
-if ! "$LAUNCHER" --headless --frames 30 >/dev/null 2>&1; then
+if ! "$BINARY" --headless --frames 30 >/dev/null 2>&1; then
     warn "Biner terpasang, tetapi uji asap dari folder game gagal."
 else
     ok "Uji asap biner terpasang berhasil."
@@ -573,9 +825,13 @@ fi
 
 printf '\n%sAetheria siap dimainkan.%s\n' "$C_GREEN" "$C_RESET"
 printf '  Folder   : %s\n' "$GAME_DIR"
-printf '  Biner    : %s\n' "$GAME_DIR/rpgcpp"
+printf '  Biner    : %s\n' "$BINARY"
 printf '  Jalankan : %s\n' "$LAUNCHER"
 printf '  Simpanan : %s/savegame.dat\n' "$GAME_DIR"
 printf '  Sumber   : %s\n' "$SOURCE_DIR"
-printf '  Launcher : %s\n' "$DESKTOP_FILE"
-printf '  Ikon     : %s\n' "$ICON_FILE"
+if [ "$IS_WINDOWS" -eq 1 ]; then
+    printf '  Shortcut : %s\n' "$START_MENU_DIR/Aetheria.lnk"
+else
+    printf '  Launcher : %s\n' "$DESKTOP_FILE"
+    printf '  Ikon     : %s\n' "$ICON_FILE"
+fi

@@ -1,4 +1,4 @@
-// platform.h - native window and input (X11)
+// platform.h - native window and input (X11 on Linux, Win32 on Windows)
 #pragma once
 #include <algorithm>
 #include <cmath>

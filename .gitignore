@@ -1,9 +1,13 @@
 # Hasil build
 build/
 rpgcpp
+rpgcpp.exe
 tests/run_tests
+tests/run_tests.exe
 *.o
 *.d
+*.old
+*.old.exe
 
 # Simpanan dan tangkapan layar lokal
 savegame*.dat

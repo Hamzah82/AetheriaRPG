@@ -70,13 +70,45 @@ void removeSaveFiles(const std::string& base) {
     }
 }
 
+// Temporary files follow the platform convention (/tmp on Linux, %TEMP% on
+// Windows) so the suite runs on both.
+const std::string& tempDir() {
+    static const std::string dir = [] {
+        std::error_code ec;
+        std::filesystem::path base = std::filesystem::temp_directory_path(ec);
+        if (ec || base.empty()) base = ".";
+        base /= "aetheria_tests";
+        std::filesystem::create_directories(base, ec);
+        return base.string();
+    }();
+    return dir;
+}
+
 std::string tmpPath(const char* name) {
     std::error_code ec;
-    std::filesystem::create_directories("/tmp/opencode", ec);
-    std::string p = std::string("/tmp/opencode/") + name;
+    std::filesystem::create_directories(tempDir(), ec);
+    std::string p = tempDir() + "/" + name;
     removeSaveFiles(p);
     std::remove((p + ".tmp").c_str());
     return p;
+}
+
+// Environment helpers: the POSIX names are not available in every Windows
+// toolchain, while _putenv_s is the portable equivalent there.
+void setEnv(const char* name, const char* value) {
+#ifdef _WIN32
+    _putenv_s(name, value ? value : "");
+#else
+    setenv(name, value, 1);
+#endif
+}
+
+void unsetEnv(const char* name) {
+#ifdef _WIN32
+    _putenv_s(name, "");
+#else
+    unsetenv(name);
+#endif
 }
 
 InputState keyInput(Key k) {
@@ -601,9 +633,10 @@ void testSaveSlots() {
 // ---------------------------------------------------------------- settings
 
 void testSettings() {
-    std::string path = "/tmp/opencode/rpgcpp_settings/settings.cfg";
+    const std::string settingsRoot = tempDir() + "/rpgcpp_settings";
+    std::string path = settingsRoot + "/settings.cfg";
     std::error_code ec;
-    std::filesystem::remove_all("/tmp/opencode/rpgcpp_settings", ec);
+    std::filesystem::remove_all(settingsRoot, ec);
 
     Settings defaults = loadSettings(path);
     CHECK_NEAR(defaults.musicVolume, 0.62f);
@@ -648,7 +681,7 @@ void testSettings() {
     CHECK(!defaultSettingsPath().empty());
     CHECK(defaultSettingsPath().find("settings.cfg") != std::string::npos);
 
-    std::filesystem::remove_all("/tmp/opencode/rpgcpp_settings", ec);
+    std::filesystem::remove_all(settingsRoot, ec);
 }
 
 // ---------------------------------------------------------------- title flow
@@ -1456,8 +1489,8 @@ void testUpdater() {
     // An installed copy keeps its save beside the binary, whether `source` is
     // a checkout directory (current layout) or a pointer file (older layout).
     const std::string exeDir = executableDirectory();
-    const std::string sourceEntry = exeDir + "/source";
-    const std::string expectedSave = exeDir + "/savegame.dat";
+    const std::string sourceEntry = (fs::path(exeDir) / "source").string();
+    const std::string expectedSave = (fs::path(exeDir) / "savegame.dat").string();
     fs::remove_all(sourceEntry, ec);
     fs::create_directories(sourceEntry, ec);
     CHECK(fs::is_directory(sourceEntry, ec));
@@ -1465,7 +1498,7 @@ void testUpdater() {
     fs::remove_all(sourceEntry, ec);
     {
         std::ofstream marker(sourceEntry);
-        marker << "/tmp/somewhere\n";
+        marker << tempDir() << "/somewhere\n";
     }
     CHECK(fs::is_regular_file(sourceEntry, ec));
     CHECK(defaultSavePath() == expectedSave);
@@ -1486,10 +1519,10 @@ void testUpdater() {
         src << "int main() { return 0; }\n";
     }
     const fs::path originalCwd = fs::current_path(ec);
-    const fs::path neutralCwd = "/tmp/opencode/rpgcpp_neutral_cwd";
+    const fs::path neutralCwd = fs::path(tempDir()) / "rpgcpp_neutral_cwd";
     fs::create_directories(neutralCwd, ec);
     fs::current_path(neutralCwd, ec);
-    unsetenv("AETHERIA_REPO");
+    unsetEnv("AETHERIA_REPO");
     std::string installedFound = findSourceCheckout();
     CHECK(!installedFound.empty());
     CHECK(fs::equivalent(installedFound, installedSource, ec));
@@ -1502,11 +1535,11 @@ void testUpdater() {
     CHECK(isSourceCheckout(root));
 
     // AETHERIA_REPO points the in-game updater at an explicit checkout.
-    setenv("AETHERIA_REPO", root.c_str(), 1);
+    setEnv("AETHERIA_REPO", root.c_str());
     std::string found = findSourceCheckout();
     CHECK(!found.empty());
     CHECK(fs::equivalent(found, root, ec));
-    unsetenv("AETHERIA_REPO");
+    unsetEnv("AETHERIA_REPO");
 
     Updater updater;
     CHECK(!updater.running());
@@ -1535,7 +1568,7 @@ void testUpdater() {
 
     // The title row starts the worker, stays on the title screen, and does
     // not request a restart when the update fails.
-    setenv("AETHERIA_REPO", root.c_str(), 1);
+    setEnv("AETHERIA_REPO", root.c_str());
     {
         Game game(77, tmpPath("rpgcpp_updater_game.dat"));
         Updater menuUpdater;
@@ -1546,7 +1579,7 @@ void testUpdater() {
         tap(game, Key::Confirm);
         CHECK(game.state() == GameState::Title);
         CHECK(!game.restartRequested());
-        for (int i = 0; i < 600 && !menuUpdater.finished(); ++i) {
+        for (int i = 0; i < 1200 && !menuUpdater.finished(); ++i) {
             InputState idle;
             game.update(1.0f / 60.0f, idle);
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -1557,7 +1590,7 @@ void testUpdater() {
         CHECK(!game.restartRequested());
         CHECK_EQ(game.debugTitleIndex(), 2);
     }
-    unsetenv("AETHERIA_REPO");
+    unsetEnv("AETHERIA_REPO");
 
     fs::remove_all(root, ec);
 }

@@ -1,16 +1,29 @@
-// audio.cpp - real-time ALSA playback, loaded dynamically at runtime
+// audio.cpp - real-time playback: ALSA on Linux, winmm on Windows
 #include "audio.h"
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <dlfcn.h>
 #include <exception>
 #include <mutex>
 #include <thread>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <mmsystem.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include "core.h"
 
@@ -18,17 +31,6 @@ namespace rpg {
 
 namespace {
 
-struct AlsaPcm;
-using FnOpen = int (*)(AlsaPcm**, const char*, int, int);
-using FnSetParams = int (*)(AlsaPcm*, int, int, unsigned int, unsigned int, int, unsigned int);
-using FnWrite = long (*)(AlsaPcm*, const void*, unsigned long);
-using FnRecover = int (*)(AlsaPcm*, int, int);
-using FnDrop = int (*)(AlsaPcm*);
-using FnClose = int (*)(AlsaPcm*);
-
-constexpr int kStreamPlayback = 0;
-constexpr int kFormatS16LE = 2;
-constexpr int kAccessRwInterleaved = 3;
 constexpr int kFramesPerChunk = 512;
 
 constexpr float kSfxGain[] = {
@@ -56,6 +58,30 @@ constexpr float kSfxGain[] = {
 static_assert(sizeof(kSfxGain) / sizeof(kSfxGain[0]) == static_cast<size_t>(SfxId::Count),
               "every sound effect needs a playback gain");
 
+#ifdef _WIN32
+
+// Completion callback for one waveOut buffer. The header carries the event
+// handle in dwUser, so every buffer can be waited on independently.
+void CALLBACK waveOutDone(HWAVEOUT, UINT msg, DWORD_PTR, DWORD_PTR param, DWORD_PTR) {
+    if (msg != WOM_DONE) return;
+    auto* header = reinterpret_cast<WAVEHDR*>(param);
+    if (header && header->dwUser) SetEvent(reinterpret_cast<HANDLE>(header->dwUser));
+}
+
+#else
+
+struct AlsaPcm;
+using FnOpen = int (*)(AlsaPcm**, const char*, int, int);
+using FnSetParams = int (*)(AlsaPcm*, int, int, unsigned int, unsigned int, int, unsigned int);
+using FnWrite = long (*)(AlsaPcm*, const void*, unsigned long);
+using FnRecover = int (*)(AlsaPcm*, int, int);
+using FnDrop = int (*)(AlsaPcm*);
+using FnClose = int (*)(AlsaPcm*);
+
+constexpr int kStreamPlayback = 0;
+constexpr int kFormatS16LE = 2;
+constexpr int kAccessRwInterleaved = 3;
+
 template <typename T>
 bool loadSymbol(void* library, const char* name, T* out, std::string* error) {
     dlerror();
@@ -71,7 +97,205 @@ bool loadSymbol(void* library, const char* name, T* out, std::string* error) {
     return true;
 }
 
+#endif
+
 }  // namespace
+
+// Small output-device wrapper so the mixer below is shared by both platforms.
+struct AudioSink {
+#ifdef _WIN32
+    static constexpr int kBuffers = 2;
+    HWAVEOUT handle = nullptr;
+    WAVEHDR headers[kBuffers] = {};
+    HANDLE done[kBuffers] = {};
+    std::vector<int16_t> buffers[kBuffers];
+    bool prepared[kBuffers] = {};
+    int next = 0;
+
+    bool open(std::string* error) {
+        WAVEFORMATEX format;
+        std::memset(&format, 0, sizeof(format));
+        format.wFormatTag = WAVE_FORMAT_PCM;
+        format.nChannels = 1;
+        format.nSamplesPerSec = AUDIO_RATE;
+        format.wBitsPerSample = 16;
+        format.nBlockAlign = static_cast<WORD>(format.nChannels * format.wBitsPerSample / 8);
+        format.nAvgBytesPerSec = format.nSamplesPerSec * format.nBlockAlign;
+
+        MMRESULT rc = waveOutOpen(
+            &handle, WAVE_MAPPER, &format,
+            reinterpret_cast<DWORD_PTR>(&waveOutDone), 0, CALLBACK_FUNCTION);
+        if (rc != MMSYSERR_NOERROR || !handle) {
+            handle = nullptr;
+            if (error) *error = "Tidak ada perangkat audio Win32 yang bisa dibuka.";
+            return false;
+        }
+        for (int i = 0; i < kBuffers; ++i) {
+            done[i] = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+            if (!done[i]) {
+                if (error) *error = "Gagal menyiapkan buffer audio Win32.";
+                close();
+                return false;
+            }
+            buffers[i].assign(kFramesPerChunk, 0);
+        }
+        return true;
+    }
+
+    void close() {
+        if (handle) {
+            waveOutReset(handle);
+            for (int i = 0; i < kBuffers; ++i) {
+                if (!prepared[i]) continue;
+                // The mixer thread is already joined; give the device driver a
+                // short moment to finish the last buffer before freeing it.
+                for (int attempt = 0; attempt < 200; ++attempt) {
+                    MMRESULT rc = waveOutUnprepareHeader(handle, &headers[i], sizeof(WAVEHDR));
+                    if (rc == MMSYSERR_NOERROR) {
+                        prepared[i] = false;
+                        break;
+                    }
+                    if (rc != WAVERR_STILLPLAYING) break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                }
+            }
+            waveOutClose(handle);
+            handle = nullptr;
+        }
+        for (int i = 0; i < kBuffers; ++i) {
+            if (done[i]) {
+                CloseHandle(done[i]);
+                done[i] = nullptr;
+            }
+            prepared[i] = false;
+            headers[i] = WAVEHDR();
+            buffers[i].clear();
+        }
+        next = 0;
+    }
+
+    bool ready() const { return handle != nullptr; }
+
+    bool write(const int16_t* data, int frames) {
+        if (!handle || frames <= 0) return false;
+        const int slot = next;
+        if (prepared[slot]) {
+            if (WaitForSingleObject(done[slot], 2000) != WAIT_OBJECT_0) return false;
+            if (waveOutUnprepareHeader(handle, &headers[slot], sizeof(WAVEHDR)) !=
+                MMSYSERR_NOERROR) {
+                return false;
+            }
+            prepared[slot] = false;
+        }
+        std::memcpy(buffers[slot].data(), data,
+                    sizeof(int16_t) * static_cast<size_t>(frames));
+        headers[slot] = WAVEHDR();
+        headers[slot].lpData = reinterpret_cast<LPSTR>(buffers[slot].data());
+        headers[slot].dwBufferLength = static_cast<DWORD>(frames * sizeof(int16_t));
+        headers[slot].dwUser = reinterpret_cast<DWORD_PTR>(done[slot]);
+        if (waveOutPrepareHeader(handle, &headers[slot], sizeof(WAVEHDR)) != MMSYSERR_NOERROR) {
+            return false;
+        }
+        prepared[slot] = true;
+        if (waveOutWrite(handle, &headers[slot], sizeof(WAVEHDR)) != MMSYSERR_NOERROR) {
+            return false;
+        }
+        next = (slot + 1) % kBuffers;
+        return true;
+    }
+
+#else
+
+    void* library = nullptr;
+    AlsaPcm* pcm = nullptr;
+    FnOpen fnOpen = nullptr;
+    FnSetParams fnSetParams = nullptr;
+    FnWrite fnWrite = nullptr;
+    FnRecover fnRecover = nullptr;
+    FnDrop fnDrop = nullptr;
+    FnClose fnClose = nullptr;
+
+    bool open(std::string* error) {
+        library = dlopen("libasound.so.2", RTLD_NOW | RTLD_LOCAL);
+        if (!library) {
+            if (error) *error = "Pustaka libasound.so.2 tidak ditemukan.";
+            return false;
+        }
+
+        bool symbolsOk = true;
+        symbolsOk = symbolsOk && loadSymbol(library, "snd_pcm_open", &fnOpen, error);
+        symbolsOk = symbolsOk && loadSymbol(library, "snd_pcm_set_params", &fnSetParams, error);
+        symbolsOk = symbolsOk && loadSymbol(library, "snd_pcm_writei", &fnWrite, error);
+        symbolsOk = symbolsOk && loadSymbol(library, "snd_pcm_recover", &fnRecover, error);
+        symbolsOk = symbolsOk && loadSymbol(library, "snd_pcm_drop", &fnDrop, error);
+        symbolsOk = symbolsOk && loadSymbol(library, "snd_pcm_close", &fnClose, error);
+        if (!symbolsOk) {
+            close();
+            return false;
+        }
+
+        const char* devices[] = {"default", "pipewire", "pulse"};
+        int rc = -1;
+        for (const char* device : devices) {
+            rc = fnOpen(&pcm, device, kStreamPlayback, 0);
+            if (rc == 0 && pcm) break;
+            pcm = nullptr;
+        }
+        if (rc != 0 || !pcm) {
+            close();
+            if (error) *error = "Tidak ada perangkat audio yang bisa dibuka.";
+            return false;
+        }
+
+        rc = fnSetParams(pcm, kFormatS16LE, kAccessRwInterleaved, 1, AUDIO_RATE, 1, 60000);
+        if (rc < 0) {
+            close();
+            if (error) *error = "Perangkat audio menolak format 44100 Hz mono.";
+            return false;
+        }
+        return true;
+    }
+
+    void close() {
+        if (pcm) {
+            if (fnDrop) fnDrop(pcm);
+            if (fnClose) fnClose(pcm);
+            pcm = nullptr;
+        }
+        if (library) {
+            dlclose(library);
+            library = nullptr;
+        }
+        fnOpen = nullptr;
+        fnSetParams = nullptr;
+        fnWrite = nullptr;
+        fnRecover = nullptr;
+        fnDrop = nullptr;
+        fnClose = nullptr;
+    }
+
+    bool ready() const { return pcm != nullptr; }
+
+    bool write(const int16_t* data, int frames) {
+        int written = 0;
+        while (written < frames) {
+            long n = fnWrite(pcm, data + written,
+                             static_cast<unsigned long>(frames - written));
+            if (n < 0) {
+                if (fnRecover(pcm, static_cast<int>(n), 1) < 0) return false;
+                continue;
+            }
+            if (n == 0) {
+                std::this_thread::yield();
+                continue;
+            }
+            written += static_cast<int>(n);
+        }
+        return true;
+    }
+
+#endif
+};
 
 struct Audio::Impl {
     struct Voice {
@@ -80,15 +304,7 @@ struct Audio::Impl {
         float gain = 1.0f;
     };
 
-    void* library = nullptr;
-    AlsaPcm* pcm = nullptr;
-    FnOpen open = nullptr;
-    FnSetParams setParams = nullptr;
-    FnWrite write = nullptr;
-    FnRecover recover = nullptr;
-    FnDrop drop = nullptr;
-    FnClose close = nullptr;
-
+    AudioSink sink;
     std::thread worker;
     std::atomic<bool> running{false};
     std::atomic<bool> failed{false};
@@ -120,21 +336,7 @@ struct Audio::Impl {
     void closeResources() {
         running.store(false);
         if (worker.joinable()) worker.join();
-        if (pcm) {
-            if (drop) drop(pcm);
-            if (close) close(pcm);
-            pcm = nullptr;
-        }
-        if (library) {
-            dlclose(library);
-            library = nullptr;
-        }
-        open = nullptr;
-        setParams = nullptr;
-        write = nullptr;
-        recover = nullptr;
-        drop = nullptr;
-        close = nullptr;
+        sink.close();
     }
 
     void run() {
@@ -233,23 +435,10 @@ struct Audio::Impl {
                 chunk[static_cast<size_t>(i)] = static_cast<int16_t>(sample);
             }
 
-            int written = 0;
-            while (written < kFramesPerChunk && running.load(std::memory_order_relaxed)) {
-                long n = write(pcm, chunk.data() + written,
-                               static_cast<unsigned long>(kFramesPerChunk - written));
-                if (n < 0) {
-                    if (recover(pcm, static_cast<int>(n), 1) < 0) {
-                        failed.store(true);
-                        running.store(false);
-                        return;
-                    }
-                    continue;
-                }
-                if (n == 0) {
-                    std::this_thread::yield();
-                    continue;
-                }
-                written += static_cast<int>(n);
+            if (!sink.write(chunk.data(), kFramesPerChunk)) {
+                failed.store(true);
+                running.store(false);
+                return;
             }
         }
     }
@@ -277,44 +466,9 @@ bool Audio::init(std::string* err) {
         return false;
     }
 
-    d.library = dlopen("libasound.so.2", RTLD_NOW | RTLD_LOCAL);
-    if (!d.library) {
-        d.errorText = "Pustaka libasound.so.2 tidak ditemukan. Game berjalan tanpa suara.";
-        if (err) *err = d.errorText;
-        return false;
-    }
-
-    bool symbolsOk = true;
-    symbolsOk = symbolsOk && loadSymbol(d.library, "snd_pcm_open", &d.open, &d.errorText);
-    symbolsOk = symbolsOk && loadSymbol(d.library, "snd_pcm_set_params", &d.setParams, &d.errorText);
-    symbolsOk = symbolsOk && loadSymbol(d.library, "snd_pcm_writei", &d.write, &d.errorText);
-    symbolsOk = symbolsOk && loadSymbol(d.library, "snd_pcm_recover", &d.recover, &d.errorText);
-    symbolsOk = symbolsOk && loadSymbol(d.library, "snd_pcm_drop", &d.drop, &d.errorText);
-    symbolsOk = symbolsOk && loadSymbol(d.library, "snd_pcm_close", &d.close, &d.errorText);
-    if (!symbolsOk) {
-        d.closeResources();
-        if (err) *err = d.errorText;
-        return false;
-    }
-
-    const char* devices[] = {"default", "pipewire", "pulse"};
-    int rc = -1;
-    for (const char* device : devices) {
-        rc = d.open(&d.pcm, device, kStreamPlayback, 0);
-        if (rc == 0 && d.pcm) break;
-        d.pcm = nullptr;
-    }
-    if (rc != 0 || !d.pcm) {
-        d.closeResources();
-        d.errorText = "Tidak ada perangkat audio yang bisa dibuka. Game berjalan tanpa suara.";
-        if (err) *err = d.errorText;
-        return false;
-    }
-
-    rc = d.setParams(d.pcm, kFormatS16LE, kAccessRwInterleaved, 1, AUDIO_RATE, 1, 60000);
-    if (rc < 0) {
-        d.closeResources();
-        d.errorText = "Perangkat audio menolak format 44100 Hz mono.";
+    if (!d.sink.open(&d.errorText)) {
+        d.sink.close();
+        d.errorText += " Game berjalan tanpa suara.";
         if (err) *err = d.errorText;
         return false;
     }
@@ -352,7 +506,7 @@ void Audio::shutdown() {
 
 bool Audio::available() const {
     const Impl& d = *impl_;
-    return d.running.load() && !d.failed.load() && d.pcm != nullptr;
+    return d.running.load() && !d.failed.load() && d.sink.ready();
 }
 
 void Audio::playMusic(MusicId id) {
