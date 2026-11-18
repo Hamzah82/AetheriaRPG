@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -261,7 +262,11 @@ bool Game::writeSaveTo(const std::string& path, std::string* err) {
         return false;
     }
     f.close();
-    if (std::rename(tmp.c_str(), path.c_str()) != 0) {
+    // std::rename does not replace an existing file on Windows, while the
+    // filesystem overload does; both platforms keep the replace atomic.
+    std::error_code renameEc;
+    std::filesystem::rename(tmp, path, renameEc);
+    if (renameEc) {
         if (err) *err = "Gagal menyimpan berkas.";
         std::remove(tmp.c_str());
         return false;

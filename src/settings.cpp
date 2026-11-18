@@ -105,7 +105,11 @@ bool saveSettings(const std::string& path, const Settings& settings, std::string
             return false;
         }
     }
-    if (std::rename(tmp.c_str(), path.c_str()) != 0) {
+    // std::rename does not overwrite an existing file on Windows; the
+    // filesystem overload does on both platforms.
+    std::error_code renameEc;
+    std::filesystem::rename(tmp, path, renameEc);
+    if (renameEc) {
         if (err) *err = "Gagal menyimpan berkas pengaturan.";
         std::remove(tmp.c_str());
         return false;
