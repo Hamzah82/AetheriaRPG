@@ -1,5 +1,6 @@
 #include "savegame.h"
 
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -174,6 +175,39 @@ bool decodeSaveText(const std::string& raw, std::string* plain) {
     std::string text = payload.substr(kPayloadPrefix);
     if (saveChecksum(text) != expected) return false;
     *plain = std::move(text);
+    return true;
+}
+
+bool isEncodedSaveText(const std::string& raw) {
+    return raw.compare(0, sizeof(kSaveHeader) - 1, kSaveHeader) == 0;
+}
+
+bool writeSaveText(const std::string& path, const std::string& plain, std::string* err) {
+    if (err) err->clear();
+    std::string encoded = encodeSaveText(plain);
+    std::string tmp = path + ".tmp";
+    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+    if (!f) {
+        if (err) *err = "Tidak bisa menulis berkas simpanan.";
+        return false;
+    }
+    f.write(encoded.data(), static_cast<std::streamsize>(encoded.size()));
+    if (!f) {
+        if (err) *err = "Gagal menulis data simpanan.";
+        f.close();
+        std::remove(tmp.c_str());
+        return false;
+    }
+    f.close();
+    // std::rename does not replace an existing file on Windows, while the
+    // filesystem overload does; both platforms keep the replace atomic.
+    std::error_code renameEc;
+    std::filesystem::rename(tmp, path, renameEc);
+    if (renameEc) {
+        if (err) *err = "Gagal menyimpan berkas.";
+        std::remove(tmp.c_str());
+        return false;
+    }
     return true;
 }
 

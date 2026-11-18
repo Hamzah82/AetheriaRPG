@@ -685,6 +685,9 @@ void testSaveEncoding() {
     Game legacy(33, base);
     CHECK(legacy.loadGame(&err));
     CHECK_EQ(legacy.player().gold, 42);
+    // Loading rewrites a legacy file in the encoded format immediately.
+    raw = readFile(base);
+    CHECK(isEncodedSaveText(raw));
     legacy.player().gold = 43;
     CHECK(legacy.saveGame(&err));
     raw = readFile(base);
@@ -698,6 +701,8 @@ void testSaveEncoding() {
     std::string encoded = encodeSaveText(plain);
     std::string decoded;
     CHECK(encoded != plain);
+    CHECK(isEncodedSaveText(encoded));
+    CHECK(!isEncodedSaveText(plain));
     CHECK(decodeSaveText(encoded, &decoded));
     CHECK(decoded == plain);
     CHECK(decodeSaveText(plain, &decoded));

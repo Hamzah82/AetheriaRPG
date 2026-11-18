@@ -286,33 +286,9 @@ bool Game::writeSaveTo(const std::string& path, std::string* err) {
     }
     out << "\n";
 
-    // Encode before writing so the file is not directly editable, and write
-    // through a temporary file so a crash cannot leave a half-written save.
-    std::string encoded = encodeSaveText(out.str());
-    std::string tmp = path + ".tmp";
-    std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
-    if (!f) {
-        if (err) *err = "Tidak bisa menulis berkas simpanan.";
-        return false;
-    }
-    f.write(encoded.data(), static_cast<std::streamsize>(encoded.size()));
-    if (!f) {
-        if (err) *err = "Gagal menulis data simpanan.";
-        f.close();
-        std::remove(tmp.c_str());
-        return false;
-    }
-    f.close();
-    // std::rename does not replace an existing file on Windows, while the
-    // filesystem overload does; both platforms keep the replace atomic.
-    std::error_code renameEc;
-    std::filesystem::rename(tmp, path, renameEc);
-    if (renameEc) {
-        if (err) *err = "Gagal menyimpan berkas.";
-        std::remove(tmp.c_str());
-        return false;
-    }
-    return true;
+    // writeSaveText encodes the payload, writes a temporary file, and replaces
+    // the target atomically so a crash cannot leave a half-written save.
+    return writeSaveText(path, out.str(), err);
 }
 
 bool Game::loadGame(std::string* err) { return readSaveFrom(savePath_, err); }
@@ -326,6 +302,7 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
     std::ifstream f(path, std::ios::binary);
     if (!f) return fail("Tidak ada berkas simpanan.");
     std::string raw((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    bool legacy = !isEncodedSaveText(raw);
     std::string text;
     if (!decodeSaveText(raw, &text))
         return fail("Berkas simpanan rusak atau telah dimodifikasi.");
@@ -465,6 +442,9 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
     mapBanner_ = 3.0f;
     mapBannerText_ = world_.def(map_).name;
     updateCamera(100.0f);
+    // Upgrade a plaintext save in place so it is protected from casual editing
+    // from this load onward. A failed rewrite must not fail the load.
+    if (legacy) writeSaveText(path, text, nullptr);
     return true;
 }
 

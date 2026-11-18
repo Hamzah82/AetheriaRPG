@@ -17,6 +17,14 @@ std::string slotLabel(int slot);
 std::string encodeSaveText(const std::string& plain);
 bool decodeSaveText(const std::string& raw, std::string* plain);
 
+// True when the bytes already use the encoded container.
+bool isEncodedSaveText(const std::string& raw);
+
+// Encodes and writes a save through a temporary file, then replaces the
+// target atomically. Used for normal saves and for upgrading legacy files.
+bool writeSaveText(const std::string& path, const std::string& plain,
+                   std::string* err = nullptr);
+
 struct SaveInfo {
     bool exists = false;
     bool valid = false;
