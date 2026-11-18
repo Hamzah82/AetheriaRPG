@@ -1115,6 +1115,30 @@ void testUpdater() {
     fs::remove(sourceEntry, ec);
     CHECK(defaultSavePath() == "savegame.dat");
 
+    // Installed layout: the checkout beside the binary is found even when the
+    // game runs from an unrelated working directory.
+    const fs::path installedSource = fs::path(exeDir) / "source";
+    fs::create_directories(installedSource / "src", ec);
+    fs::create_directories(installedSource / ".git", ec);
+    {
+        std::ofstream make(installedSource / "Makefile");
+        make << "all:\n\t@true\n";
+    }
+    {
+        std::ofstream src(installedSource / "src" / "main.cpp");
+        src << "int main() { return 0; }\n";
+    }
+    const fs::path originalCwd = fs::current_path(ec);
+    const fs::path neutralCwd = "/tmp/opencode/rpgcpp_neutral_cwd";
+    fs::create_directories(neutralCwd, ec);
+    fs::current_path(neutralCwd, ec);
+    unsetenv("AETHERIA_REPO");
+    std::string installedFound = findSourceCheckout();
+    CHECK(!installedFound.empty());
+    CHECK(fs::equivalent(installedFound, installedSource, ec));
+    fs::current_path(originalCwd, ec);
+    fs::remove_all(installedSource, ec);
+
     CHECK(!isSourceCheckout(""));
     CHECK(!isSourceCheckout(root));
     fs::create_directories(root + "/.git", ec);
