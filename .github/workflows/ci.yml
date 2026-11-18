@@ -61,3 +61,12 @@ jobs:
 
       - name: Screenshot smoke test
         run: ./rpgcpp.exe --screenshot /tmp/aetheria-shots
+
+      - name: Installer smoke test
+        run: |
+          dest="$(cygpath -u "$RUNNER_TEMP")/aetheria-install"
+          repo="$(cygpath -u "$GITHUB_WORKSPACE")"
+          ./install.sh --yes --dir "$dest" --repo "$repo"
+          test -f "$dest/rpgcpp.exe"
+          test -f "$dest/Aetheria.bat"
+          "$dest/rpgcpp.exe" --headless --frames 60
