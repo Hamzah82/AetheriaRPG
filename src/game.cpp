@@ -10,6 +10,7 @@
 
 #include "art.h"
 #include "audio.h"
+#include "updater.h"
 
 namespace rpg {
 
@@ -41,6 +42,8 @@ void Game::setAudio(Audio* audio) {
     battle_.setAudio(audio);
     updateMusic();
 }
+
+void Game::setUpdater(Updater* updater) { updater_ = updater; }
 
 void Game::playSfx(SfxId id) {
     if (audio_) audio_->playSfx(id);
@@ -794,22 +797,59 @@ void Game::saveFromMenu() {
 
 void Game::updateTitle(float dt, const InputState& in) {
     titleTime_ += dt;
-    menuFeedback(in);
     titleMsgTimer_ = std::max(0.0f, titleMsgTimer_ - dt);
-    if (in.hit(Key::Up)) titleIndex_ = (titleIndex_ + 2) % 3;
-    if (in.hit(Key::Down)) titleIndex_ = (titleIndex_ + 1) % 3;
-    if (in.hit(Key::Confirm)) {
-        if (titleIndex_ == 0) {
-            newGame();
-        } else if (titleIndex_ == 1) {
-            std::string err;
-            if (!loadGame(&err)) {
-                titleMsg_ = err;
-                titleMsgTimer_ = 2.5f;
-            }
+
+    // The worker thread reports completion, not the menu, so poll it every
+    // frame even when the player is only watching the progress line.
+    if (updater_ && titleUpdateActive_ && !updater_->running()) {
+        titleUpdateActive_ = false;
+        if (updater_->success()) {
+            titleIndex_ = 2;
+            titleMsg_ = "Pembaruan selesai. Tekan Z untuk mulai ulang.";
+            titleMsgTimer_ = 0.0f;
         } else {
-            quit_ = true;
+            titleMsg_ = updater_->errorText();
+            if (titleMsg_.empty()) titleMsg_ = updater_->statusText();
+            titleMsgTimer_ = 4.0f;
         }
+    }
+
+    // Keep the menu still while git and make are working so the player cannot
+    // leave the title screen in the middle of an update.
+    if (titleUpdateActive_ && updater_ && updater_->running()) return;
+
+    menuFeedback(in);
+    if (in.hit(Key::Up)) titleIndex_ = (titleIndex_ + 3) % 4;
+    if (in.hit(Key::Down)) titleIndex_ = (titleIndex_ + 1) % 4;
+    if (!in.hit(Key::Confirm)) return;
+
+    if (titleIndex_ == 0) {
+        newGame();
+    } else if (titleIndex_ == 1) {
+        std::string err;
+        if (!loadGame(&err)) {
+            titleMsg_ = err;
+            titleMsgTimer_ = 2.5f;
+        }
+    } else if (titleIndex_ == 2) {
+        if (!updater_) {
+            titleMsg_ = "Pembaruan tidak tersedia di mode ini.";
+            titleMsgTimer_ = 3.0f;
+        } else if (updater_->finished() && updater_->success()) {
+            restart_ = true;
+        } else {
+            std::string err;
+            if (updater_->start(&err)) {
+                titleUpdateActive_ = true;
+                titleMsg_.clear();
+                titleMsgTimer_ = 0.0f;
+            } else {
+                titleMsg_ = err.empty() ? "Pembaruan gagal dimulai." : err;
+                titleMsgTimer_ = 4.0f;
+            }
+        }
+    } else {
+        quit_ = true;
     }
 }
 

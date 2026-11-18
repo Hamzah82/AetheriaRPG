@@ -1,4 +1,5 @@
 // main.cpp - entry point, window loop, headless smoke test, screenshot tool
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -6,11 +7,14 @@
 #include <string>
 #include <vector>
 
+#include <unistd.h>
+
 #include "art.h"
 #include "audio.h"
 #include "game.h"
 #include "gfx.h"
 #include "platform.h"
+#include "updater.h"
 
 using namespace rpg;
 
@@ -266,6 +270,8 @@ int main(int argc, char** argv) {
 
     Game game(opt.seed, opt.savePath);
     if (audio.available()) game.setAudio(&audio);
+    Updater updater;
+    game.setUpdater(&updater);
     Framebuffer fb;
     fb.resize(VIEW_W, VIEW_H);
     InputState in;
@@ -280,8 +286,24 @@ int main(int argc, char** argv) {
         game.render(fb);
         platform.present(fb);
         platform.frameDelay();
-        if (game.quitRequested()) break;
+        if (game.quitRequested() || game.restartRequested()) break;
     }
+
+    bool restart = game.restartRequested();
     platform.close();
+    audio.shutdown();
+
+    if (restart) {
+        // The running inode may be a deleted file after an update, so prefer
+        // the path the updater just produced instead of /proc/self/exe.
+        std::string target = updater.restartPath();
+        if (target.empty()) target = "/proc/self/exe";
+        std::printf("memulai ulang: %s\n", target.c_str());
+        std::fflush(stdout);
+        execv(target.c_str(), argv);
+        std::fprintf(stderr, "gagal memulai ulang %s: %s\n", target.c_str(),
+                     std::strerror(errno));
+        return 1;
+    }
     return 0;
 }

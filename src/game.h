@@ -14,6 +14,7 @@
 namespace rpg {
 
 class Audio;
+class Updater;
 
 enum class GameState { Title, Explore, Dialogue, Battle, Menu, Shop, GameOver, Ending };
 
@@ -93,6 +94,11 @@ public:
     // game completely silent, which tests and screenshot runs rely on.
     void setAudio(Audio* audio);
 
+    // Optional in-game updater; when nullptr the title menu reports that
+    // updating is unavailable (tests, headless, and screenshot runs).
+    void setUpdater(Updater* updater);
+    bool restartRequested() const { return restart_; }
+
     // Debug/test hooks (also used by the screenshot tool).
     void debugWarp(int map, int tx, int ty);
     void debugSetFacing(int facing);
@@ -100,6 +106,7 @@ public:
     void debugOpenMenu();
     int debugMenuPage() const { return menuPage_; }
     int debugMenuIndex() const { return menuIndex_; }
+    int debugTitleIndex() const { return titleIndex_; }
     void debugInteract();
     void debugAdvanceDialogue();
     bool debugChestOpened(int map, int index) const;
@@ -183,7 +190,10 @@ private:
     Rng rng_;
     std::string savePath_;
     Audio* audio_ = nullptr;
+    Updater* updater_ = nullptr;
     bool quit_ = false;
+    bool restart_ = false;
+    bool titleUpdateActive_ = false;
 
     int titleIndex_ = 0;
     float titleTime_ = 0.0f;

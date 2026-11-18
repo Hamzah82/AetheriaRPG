@@ -18,6 +18,7 @@ CLEAN_BUILD=0
 UNINSTALL=0
 CXX_BIN=""
 TMP_DESKTOP=""
+TMP_SOURCE=""
 
 if [ -t 1 ]; then
     C_BOLD=$'\033[1m'
@@ -49,6 +50,9 @@ on_error() {
 cleanup() {
     if [ -n "$TMP_DESKTOP" ]; then
         rm -f "$TMP_DESKTOP" || true
+    fi
+    if [ -n "$TMP_SOURCE" ]; then
+        rm -f "$TMP_SOURCE" || true
     fi
 }
 trap on_error ERR
@@ -156,6 +160,8 @@ PREFIX="$(expand_path "$PREFIX")"
 BIN_DIR="$PREFIX/bin"
 APPS_DIR="$PREFIX/share/applications"
 DESKTOP_FILE="$APPS_DIR/aetheria.desktop"
+SOURCE_DIR="$PREFIX/share/aetheria"
+SOURCE_MARKER="$SOURCE_DIR/source"
 
 if [ -z "$JOBS" ]; then
     JOBS="$(nproc 2>/dev/null || printf '2')"
@@ -288,6 +294,10 @@ if [ "$UNINSTALL" -eq 1 ]; then
     else
         warn "Launcher tidak ditemukan: $DESKTOP_FILE"
     fi
+    if [ -e "$SOURCE_MARKER" ]; then
+        as_priv "$SOURCE_DIR" rm -f "$SOURCE_MARKER"
+        ok "Catatan sumber dihapus: $SOURCE_MARKER"
+    fi
     ok "Instalasi dihapus. Hasil build dan berkas simpanan tidak disentuh."
     exit 0
 fi
@@ -356,6 +366,16 @@ info "Memasang biner ke $BIN_DIR..."
 as_priv "$BIN_DIR" install -d "$BIN_DIR"
 as_priv "$BIN_DIR" install -m 0755 rpgcpp "$BIN_DIR/rpgcpp"
 ok "Biner terpasang: $BIN_DIR/rpgcpp"
+
+info "Mencatat lokasi sumber untuk menu Perbarui Game..."
+tmp_source="$(mktemp "${TMPDIR:-/tmp}/aetheria-source.XXXXXX")"
+TMP_SOURCE="$tmp_source"
+printf '%s\n' "$SCRIPT_DIR" >"$tmp_source"
+as_priv "$SOURCE_DIR" install -d "$SOURCE_DIR"
+as_priv "$SOURCE_DIR" install -m 0644 "$tmp_source" "$SOURCE_MARKER"
+rm -f "$tmp_source"
+TMP_SOURCE=""
+ok "Sumber tercatat: $SOURCE_MARKER"
 
 info "Memasang launcher desktop ke $APPS_DIR..."
 tmp_desktop="$(mktemp "${TMPDIR:-/tmp}/aetheria-desktop.XXXXXX.desktop")"

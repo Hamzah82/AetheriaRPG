@@ -1,12 +1,15 @@
 // tests/test_main.cpp - self-contained logic, world and render tests
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <queue>
 #include <set>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -17,6 +20,7 @@
 #include "gfx.h"
 #include "platform.h"
 #include "player.h"
+#include "updater.h"
 #include "world.h"
 
 using namespace rpg;
@@ -1003,13 +1007,30 @@ void testMenusAndGameOver() {
     Game g(21, path);
     CHECK(g.state() == GameState::Title);
 
+    // Four title rows wrap in both directions.
+    CHECK_EQ(g.debugTitleIndex(), 0);
+    tap(g, Key::Up);
+    CHECK_EQ(g.debugTitleIndex(), 3);
+    tap(g, Key::Down);
+    CHECK_EQ(g.debugTitleIndex(), 0);
+
     // Loading without a save shows a message and stays on the title.
     tap(g, Key::Down);
+    CHECK_EQ(g.debugTitleIndex(), 1);
     tap(g, Key::Confirm);
     CHECK(g.state() == GameState::Title);
     CHECK(!g.quitRequested());
 
+    // Without an Updater the update row stays safe and explains why.
     tap(g, Key::Down);
+    CHECK_EQ(g.debugTitleIndex(), 2);
+    tap(g, Key::Confirm);
+    CHECK(g.state() == GameState::Title);
+    CHECK(!g.quitRequested());
+    CHECK(!g.restartRequested());
+
+    tap(g, Key::Down);
+    CHECK_EQ(g.debugTitleIndex(), 3);
     tap(g, Key::Confirm);
     CHECK(g.quitRequested());
 
@@ -1054,6 +1075,89 @@ void testMenusAndGameOver() {
     CHECK_EQ(loaded.player().gold, 88);
 
     std::remove(path.c_str());
+}
+
+// ---------------------------------------------------------------- updater
+
+void testUpdater() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    std::string root = tmpPath("rpgcpp_updater_repo");
+    fs::remove_all(root, ec);
+    fs::create_directories(root + "/src", ec);
+    {
+        std::ofstream make(root + "/Makefile");
+        make << "all:\n\t@true\n";
+    }
+    {
+        std::ofstream src(root + "/src/main.cpp");
+        src << "int main() { return 0; }\n";
+    }
+
+    CHECK(!isSourceCheckout(""));
+    CHECK(!isSourceCheckout(root));
+    fs::create_directories(root + "/.git", ec);
+    CHECK(isSourceCheckout(root));
+
+    // AETHERIA_REPO points the in-game updater at an explicit checkout.
+    setenv("AETHERIA_REPO", root.c_str(), 1);
+    std::string found = findSourceCheckout();
+    CHECK(!found.empty());
+    CHECK(fs::equivalent(found, root, ec));
+    unsetenv("AETHERIA_REPO");
+
+    Updater updater;
+    CHECK(!updater.running());
+    CHECK(!updater.finished());
+    CHECK(!updater.success());
+    CHECK(updater.restartPath().empty());
+
+    std::string err;
+    CHECK(!updater.start(root + "/missing", "", &err));
+    CHECK(!err.empty());
+    CHECK(!updater.running());
+
+    // A directory with a fake .git fails at `git status` without ever
+    // touching the network or building anything.
+    err.clear();
+    CHECK(updater.start(root, "", &err));
+    CHECK(err.empty());
+    for (int i = 0; i < 600 && !updater.finished(); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    CHECK(updater.finished());
+    CHECK(!updater.running());
+    CHECK(!updater.success());
+    CHECK(!updater.errorText().empty());
+    CHECK(updater.restartPath().empty());
+
+    // The title row starts the worker, stays on the title screen, and does
+    // not request a restart when the update fails.
+    setenv("AETHERIA_REPO", root.c_str(), 1);
+    {
+        Game game(77, tmpPath("rpgcpp_updater_game.dat"));
+        Updater menuUpdater;
+        game.setUpdater(&menuUpdater);
+        tap(game, Key::Down);
+        tap(game, Key::Down);
+        CHECK_EQ(game.debugTitleIndex(), 2);
+        tap(game, Key::Confirm);
+        CHECK(game.state() == GameState::Title);
+        CHECK(!game.restartRequested());
+        for (int i = 0; i < 600 && !menuUpdater.finished(); ++i) {
+            InputState idle;
+            game.update(1.0f / 60.0f, idle);
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        idle(game, 2);
+        CHECK(menuUpdater.finished());
+        CHECK(!menuUpdater.success());
+        CHECK(!game.restartRequested());
+        CHECK_EQ(game.debugTitleIndex(), 2);
+    }
+    unsetenv("AETHERIA_REPO");
+
+    fs::remove_all(root, ec);
 }
 
 // ---------------------------------------------------------------- audio
@@ -1365,6 +1469,7 @@ int main() {
     testQuestFlow();
     testPortalsAndCollision();
     testMenusAndGameOver();
+    testUpdater();
     testAudio();
     testRender();
     testDisplayPixels();

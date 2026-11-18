@@ -83,6 +83,31 @@ Contoh:
 Skrip tidak menghapus berkas simpanan. Jika `~/.local/bin` belum ada di `PATH`,
 skrip akan menampilkan baris yang perlu ditambahkan ke `~/.profile`.
 
+## Perbarui Game dari Judul
+
+Layar judul memiliki empat pilihan: **Mulai Baru**, **Lanjutkan**,
+**Perbarui Game**, dan **Keluar**. Memilih **Perbarui Game** akan:
+
+1. Menjalankan `git pull --ff-only` pada checkout sumber.
+2. Membangun ulang game dengan `make -jN`.
+3. Menguji biner baru dengan `--headless --frames 30`.
+4. Memasang biner baru ke lokasi instalasi bila game dijalankan dari luar
+   checkout (misalnya `~/.local/bin/rpgcpp`).
+5. Menampilkan **Mulai Ulang** setelah berhasil; tekan `Z` untuk menjalankan
+   versi baru.
+
+Pembaruan berjalan di latar belakang sehingga layar judul tetap responsif dan
+menampilkan tahap yang sedang dikerjakan. Menu ini membutuhkan `git` serta
+checkout sumber yang bersih; perubahan lokal yang belum di-commit akan
+menghentikan pembaruan. Jika build atau uji gagal, biner lama dipulihkan
+otomatis.
+
+`install.sh` menulis lokasi checkout ke `~/.local/share/aetheria/source` agar
+game yang terpasang dapat menemukan sumbernya. Untuk checkout di lokasi lain,
+set `AETHERIA_REPO=/path/ke/sumber` sebelum menjalankan game. Pada mode
+`--headless` dan `--screenshot`, menu pembaruan tidak menjalankan perintah apa
+pun.
+
 ## Build dan Menjalankan
 
 ```bash
@@ -223,6 +248,7 @@ src/battle.h/.cpp   logika dan tampilan pertarungan
 src/game.h          antarmuka Game dan hook pengujian
 src/game.cpp        state machine, dialog, quest, toko, simpan/muat
 src/game_render.cpp tampilan judul, menu, toko, status, ending
+src/updater.h/.cpp  git pull dan build ulang dari menu judul
 src/platform.h/.cpp jendela X11, input, presentasi piksel
 src/main.cpp        CLI, loop utama, headless, screenshot
 tests/test_main.cpp rangkaian tes regresi

@@ -5,6 +5,7 @@
 #include "art.h"
 #include "audio.h"
 #include "game.h"
+#include "updater.h"
 
 namespace rpg {
 
@@ -126,10 +127,15 @@ void Game::renderTitle(Framebuffer& fb) {
     fb.textShadow(76, 40, "AETHERIA", pal::uiBorder, rgba(20, 14, 30), 4);
     centered(fb, 78, "BAYANGAN TERAKHIR", 0xFFB8A8D8, 1);
 
-    int boxY = 128;
-    panel(fb, 92, boxY, 136, 74);
-    const char* labels[3] = {"Mulai Baru", "Lanjutkan", "Keluar"};
-    for (int i = 0; i < 3; ++i) {
+    int boxY = 118;
+    panel(fb, 92, boxY, 136, 92);
+    const char* labels[4] = {"Mulai Baru", "Lanjutkan", "Perbarui Game", "Keluar"};
+    if (updater_ && updater_->running()) {
+        labels[2] = "Memperbarui...";
+    } else if (updater_ && updater_->finished() && updater_->success()) {
+        labels[2] = "Mulai Ulang";
+    }
+    for (int i = 0; i < 4; ++i) {
         int y = boxY + 10 + i * 20;
         bool sel = i == titleIndex_;
         if (sel) fb.fillRect(98, y - 4, 124, 16, pal::uiPanelLight);
@@ -138,12 +144,21 @@ void Game::renderTitle(Framebuffer& fb) {
         if (i == 1 && !hasSave()) fb.text(214, y, "-", pal::uiTextDim);
     }
 
-    if (titleMsgTimer_ > 0.0f && !titleMsg_.empty()) {
-        int w = std::min(300, fb.textWidth(titleMsg_) + 18);
-        panel(fb, (VIEW_W - w) / 2, 210, w, 24);
-        fb.text((VIEW_W - fb.textWidth(titleMsg_)) / 2, 219, titleMsg_, pal::hp);
+    std::string message;
+    if (updater_ && updater_->running()) {
+        message = updater_->statusText();
+    } else if (updater_ && updater_->finished() && updater_->success()) {
+        message = "Pembaruan selesai. Tekan Z untuk mulai ulang.";
+    } else if (titleMsgTimer_ > 0.0f && !titleMsg_.empty()) {
+        message = titleMsg_;
+    }
+
+    if (!message.empty()) {
+        int w = std::min(300, fb.textWidth(message) + 18);
+        panel(fb, (VIEW_W - w) / 2, 214, w, 22);
+        fb.text((VIEW_W - fb.textWidth(message)) / 2, 221, message, pal::hp);
     } else {
-        centered(fb, 226, "Panah: gerak   Z: pilih   X: menu", rgba(180, 176, 200, 180), 1);
+        centered(fb, 228, "Panah: gerak   Z: pilih   X: menu", rgba(180, 176, 200, 180), 1);
     }
 }
 
