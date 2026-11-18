@@ -256,8 +256,9 @@ misi dan peta, sedangkan **Simpan** meminta konfirmasi bila slot sudah terisi.
 3. Opsional: temui **Petani Ruslan** di desa dan bawa 3 Ramuan untuk misi
    sampingan.
 4. Keluar desa melalui jalan di sisi selatan menuju **Padang Aetheria**.
-5. Monster muncul secara acak di rumput tinggi Padang Aetheria, lantai Gua
-   Bayangan, dan lantai Reruntuhan Fajar. Peti harta tersebar di beberapa
+5. Monster berkeliaran di rumput tinggi Padang Aetheria, lantai Gua Bayangan,
+   dan lantai Reruntuhan Fajar. Sentuh monster untuk memulai pertarungan;
+   tidak ada pertarungan acak saat melangkah. Peti harta tersebar di beberapa
    lokasi.
 6. Masuk ke **Gua Bayangan** di timur laut padang (melewati jembatan tua).
 7. Kalahkan **Warden Bayangan** di ruang paling dalam untuk mendapatkan
@@ -270,11 +271,14 @@ misi dan peta, sedangkan **Simpan** meminta konfirmasi bila slot sudah terisi.
    Setelah ending, **Lanjutkan** dapat memuat autosave untuk menjelajah sisa
    reruntuhan.
 
-Desa Elmwood aman dari pertarungan acak. Penginapan memulihkan HP dan MP penuh
-dengan biaya 10 emas (hanya jika pemain cukup lelah dan memiliki emas).
+Desa Elmwood aman dari monster. Penginapan memulihkan HP dan MP penuh dengan
+biaya 10 emas (hanya jika pemain cukup lelah dan memiliki emas).
 
 ## Pertarungan
 
+- Monster terlihat berkeliaran di peta. Sentuh mereka untuk memulai
+  pertarungan; setelah kalah atau kabur, monster menghilang sementara lalu
+  muncul kembali di sekitar sarangnya.
 - **Serang** memakai senjata yang sedang dipakai dan dapat menghasilkan serangan
   kritis.
 - **Sihir** memakai MP: Bola Api (5 MP), Petir (7 MP), dan Pulihkan (5 MP).
@@ -461,6 +465,10 @@ headless ok: frames=1200 state=1 map=0 hp=42 checksum=...
   dan piksel tetap tegas.
 - Logika permainan tidak bergantung pada backend jendela, sehingga dapat diuji
   secara headless dan deterministik dengan benih acak tetap.
+- Monster penjelajah ditempatkan secara deterministik dari benih permainan,
+  hanya di petak encounter (rumput tinggi atau lantai gua), dan tidak pernah
+  menempati petak portal, NPC, atau peti. Posisi mereka tidak disimpan ke
+  berkas simpanan; susunannya disegarkan saat permainan baru atau dimuat.
 - Font 5×7 dan seluruh sprite digambar langsung ke framebuffer, tanpa memuat
   berkas gambar.
 - Mesin audio memakai satu thread pencampuran dengan potongan 512 frame pada

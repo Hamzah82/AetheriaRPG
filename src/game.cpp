@@ -8,6 +8,7 @@
 #include <limits>
 #include <map>
 #include <sstream>
+#include <utility>
 
 #include "art.h"
 #include "audio.h"
@@ -19,6 +20,35 @@ namespace {
 
 bool validFloat(float v) { return std::isfinite(v); }
 
+int roamSpeed(EnemyType type) {
+    switch (type) {
+        case EnemyType::Bat: return 23;
+        case EnemyType::Wolf: return 30;
+        case EnemyType::Skeleton: return 14;
+        default: return 11;
+    }
+}
+
+EnemyType rollRoamer(int map, Rng& rng) {
+    int r = rng.range(0, 99);
+    if (map == 3) {
+        if (r < 45) return EnemyType::Skeleton;
+        if (r < 80) return EnemyType::Wolf;
+        return EnemyType::Bat;
+    }
+    if (map == 2) {
+        if (r < 25) return EnemyType::Bat;
+        if (r < 60) return EnemyType::Wolf;
+        return EnemyType::Skeleton;
+    }
+    if (map == 1) {
+        if (r < 50) return EnemyType::Slime;
+        if (r < 80) return EnemyType::Bat;
+        return EnemyType::Wolf;
+    }
+    return EnemyType::Slime;
+}
+
 }  // namespace
 
 const ShopItem SHOP[SHOP_COUNT] = {
@@ -28,7 +58,10 @@ const ShopItem SHOP[SHOP_COUNT] = {
 };
 
 Game::Game(uint64_t seed, std::string savePath)
-    : rng_(seed), saveBase_(std::move(savePath)), savePath_(slotPath(saveBase_, 0)) {
+    : rng_(seed),
+      enemyRng_(seed ^ 0xD1B54A32D192ED03ull),
+      saveBase_(std::move(savePath)),
+      savePath_(slotPath(saveBase_, 0)) {
     chestOpened_.resize(static_cast<size_t>(world_.count()));
     for (int i = 0; i < world_.count(); ++i)
         chestOpened_[static_cast<size_t>(i)].assign(world_.def(i).chests.size(), false);
@@ -37,6 +70,7 @@ Game::Game(uint64_t seed, std::string savePath)
     px_ = 14 * TILE;
     py_ = 18 * TILE;
     facing_ = 1;
+    resetRoamingEnemies();
     updateCamera(100.0f);
 }
 
@@ -137,11 +171,11 @@ void Game::newGame() {
         chestOpened_[static_cast<size_t>(i)].assign(world_.def(i).chests.size(), false);
     visited_.assign(static_cast<size_t>(world_.count()), false);
     markVisited(map_);
+    resetRoamingEnemies(px_, py_);
     savePath_ = slotPath(saveBase_, 0);
     saveSlot_ = 0;
     titlePage_ = TitlePage::Main;
     saveConfirmSlot_ = -1;
-    stepsSinceBattle_ = 0;
     stepAccum_ = 0.0f;
     portalCooldown_ = 0.5f;
     interactCooldown_ = 0.0f;
@@ -407,7 +441,8 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
         }
     }
 
-    stepsSinceBattle_ = 0;
+    resetRoamingEnemies(px_, py_);
+    enemyGrace_ = 2.0f;
     stepAccum_ = 0.0f;
     portalCooldown_ = 1.0f;
     interactCooldown_ = 0.0f;
@@ -471,7 +506,7 @@ void Game::changeMap(int target, int spawnTileX, int spawnTileY, int facing) {
     clampPlayerToMap();
     facing_ = clampInt(facing, 0, 3);
     stepAccum_ = 0.0f;
-    stepsSinceBattle_ = 0;
+    enemyGrace_ = 1.2f;
     updateCamera(100.0f);
     mapBanner_ = 2.8f;
     mapBannerText_ = world_.def(map_).name;
@@ -591,43 +626,254 @@ void Game::updateParticles(float dt) {
                   floats_.end());
 }
 
-void Game::onStep() {
-    playSfx(SfxId::Step);
-    int tx = tileOfX(px_ + 8.0f);
-    int ty = tileOfY(py_ + 13.0f);
-    ++stepsSinceBattle_;
-    if (!world_.encounter(map_, tx, ty)) return;
-    if (stepsSinceBattle_ < 4) return;
-    float chance = map_ == 3 ? 0.17f : (map_ == 2 ? 0.16f : 0.13f);
-    if (!rng_.chance(chance)) return;
-    EnemyType type = EnemyType::Slime;
-    pickRandomEnemy(&type);
-    uint64_t seed = rng_.next();
-    stepsSinceBattle_ = 0;
+void Game::resetRoamingEnemies(float avoidX, float avoidY) {
+    enemies_.clear();
+    enemies_.resize(static_cast<size_t>(world_.count()));
+    for (int map = 0; map < world_.count(); ++map) spawnRoamingEnemies(map, avoidX, avoidY);
+    enemyGrace_ = 1.0f;
+}
+
+void Game::spawnRoamingEnemies(int map, float avoidX, float avoidY) {
+    if (map < 0 || map >= world_.count()) return;
+    int wanted = map == 1 ? 7 : (map == 2 ? 6 : (map == 3 ? 5 : 0));
+    if (wanted <= 0) return;
+
+    const MapDef& md = world_.def(map);
+    struct Spot {
+        int x, y;
+    };
+    std::vector<Spot> pool;
+    for (int ty = 0; ty < md.h; ++ty) {
+        for (int tx = 0; tx < md.w; ++tx) {
+            // Monsters only live on encounter terrain, so the roads of the
+            // overworld stay safe while tall grass and cave floors stay lively.
+            if (!world_.encounter(map, tx, ty)) continue;
+            if (world_.blocked(map, tx, ty)) continue;
+            if (world_.npcAt(map, tx, ty) || world_.chestAt(map, tx, ty) ||
+                world_.portalAt(map, tx, ty))
+                continue;
+
+            bool tooClose = false;
+            for (const Portal& p : md.portals) {
+                if (tx >= p.x - 3 && tx < p.x + p.w + 3 && ty >= p.y - 3 &&
+                    ty < p.y + p.h + 3) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            // Keep every arrival point clear, including portals on other maps
+            // that lead into this one.
+            for (int other = 0; other < world_.count() && !tooClose; ++other) {
+                for (const Portal& p : world_.def(other).portals) {
+                    if (p.targetMap != map) continue;
+                    if (std::abs(tx - p.spawnX) <= 4 && std::abs(ty - p.spawnY) <= 4) {
+                        tooClose = true;
+                        break;
+                    }
+                }
+            }
+            for (const NpcSpawn& n : md.npcs) {
+                if (std::abs(tx - n.x) <= 2 && std::abs(ty - n.y) <= 2) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            for (const ChestSpawn& c : md.chests) {
+                if (std::abs(tx - c.x) <= 1 && std::abs(ty - c.y) <= 1) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            // Only the map the player is standing on needs a clear pocket
+            // around them; the same pixel offset on another map is unrelated.
+            if (!tooClose && map == map_ && avoidX >= 0.0f && avoidY >= 0.0f) {
+                float cx = static_cast<float>(tx * TILE + 8);
+                float cy = static_cast<float>(ty * TILE + 8);
+                if (std::abs(cx - avoidX) <= 4.0f * TILE &&
+                    std::abs(cy - avoidY) <= 4.0f * TILE)
+                    tooClose = true;
+            }
+            if (!tooClose) pool.push_back({tx, ty});
+        }
+    }
+
+    for (size_t i = pool.size(); i > 1; --i) {
+        size_t j = static_cast<size_t>(enemyRng_.range(0, static_cast<int>(i) - 1));
+        std::swap(pool[i - 1], pool[j]);
+    }
+
+    std::vector<RoamingEnemy> spawned;
+    for (const Spot& spot : pool) {
+        bool crowded = false;
+        for (const RoamingEnemy& other : spawned) {
+            int ox = static_cast<int>(std::floor(other.x / TILE));
+            int oy = static_cast<int>(std::floor(other.y / TILE));
+            if (std::abs(ox - spot.x) < 3 && std::abs(oy - spot.y) < 3) {
+                crowded = true;
+                break;
+            }
+        }
+        if (crowded) continue;
+
+        RoamingEnemy e;
+        e.type = rollRoamer(map, enemyRng_);
+        e.x = e.homeX = static_cast<float>(spot.x * TILE);
+        e.y = e.homeY = static_cast<float>(spot.y * TILE);
+        e.anim = enemyRng_.unit() * 10.0f;
+        e.moveTimer = enemyRng_.unit() * 1.8f;
+        pickEnemyDirection(e);
+        spawned.push_back(e);
+        if (static_cast<int>(spawned.size()) >= wanted) break;
+    }
+    enemies_[static_cast<size_t>(map)] = std::move(spawned);
+}
+
+void Game::pickEnemyDirection(RoamingEnemy& e) {
+    float hx = e.homeX - e.x;
+    float hy = e.homeY - e.y;
+    if (std::abs(hx) > 5.0f * TILE || std::abs(hy) > 5.0f * TILE) {
+        // Too far from home: walk back along the dominant axis.
+        if (std::abs(hx) > std::abs(hy)) {
+            e.dirX = hx > 0.0f ? 1.0f : -1.0f;
+            e.dirY = 0.0f;
+        } else {
+            e.dirX = 0.0f;
+            e.dirY = hy > 0.0f ? 1.0f : -1.0f;
+        }
+        return;
+    }
+    static const float dirs[8][2] = {{1.0f, 0.0f},   {-1.0f, 0.0f},  {0.0f, 1.0f},
+                                     {0.0f, -1.0f},  {0.7071f, 0.7071f},
+                                     {0.7071f, -0.7071f}, {-0.7071f, 0.7071f},
+                                     {-0.7071f, -0.7071f}};
+    int d = enemyRng_.range(0, 7);
+    e.dirX = dirs[d][0];
+    e.dirY = dirs[d][1];
+}
+
+bool Game::enemyBlocked(int map, float nx, float ny, int self) const {
+    // The centre tile must remain encounter terrain, which keeps overworld
+    // monsters inside tall grass and cave monsters on the cave floor.
+    if (!world_.encounter(map, tileOfX(nx + 8.0f), tileOfY(ny + 12.0f))) return true;
+
+    int tx0 = tileOfX(nx + 3.0f), tx1 = tileOfX(nx + 12.99f);
+    int ty0 = tileOfY(ny + 6.0f), ty1 = tileOfY(ny + 15.99f);
+    for (int ty = ty0; ty <= ty1; ++ty) {
+        for (int tx = tx0; tx <= tx1; ++tx) {
+            if (world_.blocked(map, tx, ty)) return true;
+            const NpcSpawn* npc = world_.npcAt(map, tx, ty);
+            if (npc && !npcHidden(*npc)) return true;
+            if (world_.chestAt(map, tx, ty)) return true;
+            if (world_.portalAt(map, tx, ty)) return true;
+        }
+    }
+    if (map < 0 || map >= static_cast<int>(enemies_.size())) return false;
+    const auto& list = enemies_[static_cast<size_t>(map)];
+    for (size_t i = 0; i < list.size(); ++i) {
+        if (static_cast<int>(i) == self || !list[i].active) continue;
+        if (std::abs(list[i].x - nx) < 10.0f && std::abs(list[i].y - ny) < 10.0f)
+            return true;
+    }
+    return false;
+}
+
+void Game::updateEnemies(float dt) {
+    if (map_ < 0 || map_ >= static_cast<int>(enemies_.size())) return;
+    auto& list = enemies_[static_cast<size_t>(map_)];
+    for (size_t i = 0; i < list.size(); ++i) {
+        RoamingEnemy& e = list[i];
+        if (!e.active) {
+            e.respawnTimer -= dt;
+            if (e.respawnTimer > 0.0f) continue;
+            // Never materialise on top of the player.
+            if (std::abs(e.homeX - px_) < 3.0f * TILE &&
+                std::abs(e.homeY - py_) < 3.0f * TILE) {
+                e.respawnTimer = 2.0f;
+                continue;
+            }
+            e.x = e.homeX;
+            e.y = e.homeY;
+            e.active = true;
+            e.pauseTimer = 0.0f;
+            e.moveTimer = 0.4f;
+            e.anim += 1.0f;
+            spawnBurst(e.x + 8.0f, e.y + 8.0f, 10, 0xFFB080FFu, 22.0f);
+            continue;
+        }
+
+        e.anim += dt;
+        if (e.pauseTimer > 0.0f) {
+            e.pauseTimer -= dt;
+            continue;
+        }
+        e.moveTimer -= dt;
+        if (e.moveTimer <= 0.0f) {
+            e.moveTimer = 1.1f + enemyRng_.unit() * 2.2f;
+            if (enemyRng_.chance(0.22f)) {
+                e.dirX = 0.0f;
+                e.dirY = 0.0f;
+                e.pauseTimer = 0.35f + enemyRng_.unit() * 0.9f;
+                continue;
+            }
+            pickEnemyDirection(e);
+        }
+        if (e.dirX == 0.0f && e.dirY == 0.0f) continue;
+        float speed = static_cast<float>(roamSpeed(e.type));
+        float nx = e.x + e.dirX * speed * dt;
+        if (!enemyBlocked(map_, nx, e.y, static_cast<int>(i))) {
+            e.x = nx;
+        } else {
+            e.moveTimer = 0.0f;
+        }
+        float ny = e.y + e.dirY * speed * dt;
+        if (!enemyBlocked(map_, e.x, ny, static_cast<int>(i))) {
+            e.y = ny;
+        } else {
+            e.moveTimer = 0.0f;
+        }
+    }
+}
+
+void Game::checkEnemyContact() {
+    if (enemyGrace_ > 0.0f || transition_) return;
+    if (map_ < 0 || map_ >= static_cast<int>(enemies_.size())) return;
+    auto& list = enemies_[static_cast<size_t>(map_)];
+    float px0 = px_ + 4.0f, py0 = py_ + 9.0f;
+    float px1 = px_ + 11.99f, py1 = py_ + 15.99f;
+    for (size_t i = 0; i < list.size(); ++i) {
+        const RoamingEnemy& e = list[i];
+        if (!e.active) continue;
+        float ex0 = e.x + 2.0f, ey0 = e.y + 5.0f;
+        float ex1 = e.x + 13.99f, ey1 = e.y + 14.99f;
+        if (px0 < ex1 && ex0 < px1 && py0 < ey1 && ey0 < py1) {
+            startEnemyBattle(static_cast<int>(i));
+            return;
+        }
+    }
+}
+
+void Game::startEnemyBattle(int index) {
+    if (transition_) return;
+    if (map_ < 0 || map_ >= static_cast<int>(enemies_.size())) return;
+    auto& list = enemies_[static_cast<size_t>(map_)];
+    if (index < 0 || index >= static_cast<int>(list.size())) return;
+    RoamingEnemy& e = list[static_cast<size_t>(index)];
+    if (!e.active) return;
+
+    EnemyType type = e.type;
+    e.active = false;
+    e.respawnTimer = 18.0f + enemyRng_.unit() * 10.0f;
+    enemyGrace_ = 1.6f;
+    spawnBurst(e.x + 8.0f, e.y + 8.0f, 12, 0xFFFFD8A0u, 26.0f);
+    playSfx(SfxId::Attack);
+    uint64_t seed = (static_cast<uint64_t>(enemyRng_.next()) << 32) ^ enemyRng_.next();
     startTransition([this, type, seed] {
         state_ = GameState::Battle;
         battle_.begin(player_, type, false, seed);
     });
 }
 
-void Game::pickRandomEnemy(EnemyType* type) {
-    int r = rng_.range(0, 99);
-    if (map_ == 3) {
-        if (r < 45) *type = EnemyType::Skeleton;
-        else if (r < 80) *type = EnemyType::Wolf;
-        else *type = EnemyType::Bat;
-    } else if (map_ == 2) {
-        if (r < 25) *type = EnemyType::Bat;
-        else if (r < 60) *type = EnemyType::Wolf;
-        else *type = EnemyType::Skeleton;
-    } else if (map_ == 1) {
-        if (r < 50) *type = EnemyType::Slime;
-        else if (r < 80) *type = EnemyType::Bat;
-        else *type = EnemyType::Wolf;
-    } else {
-        *type = EnemyType::Slime;
-    }
-}
+void Game::onStep() { playSfx(SfxId::Step); }
 
 void Game::checkPortal() {
     if (portalCooldown_ > 0.0f) return;
@@ -892,8 +1138,9 @@ void Game::guardianTalk() {
 void Game::flavorTalk(int dialogueId) {
     switch (dialogueId) {
         case 4:
-            startDialogue("Anak Desa", {"Kalau kau menginjak rumput tinggi, monster bisa muncul!",
-                                        "Aku pernah lihat slime hijau besar di sana."});
+            startDialogue("Anak Desa",
+                          {"Monster hijau berkeliaran di rumput tinggi!",
+                           "Kalau kau menyentuhnya, pertarungan langsung dimulai."});
             break;
         case 5:
             if (flags_.herbQuestDone) {
@@ -1114,6 +1361,7 @@ void Game::updateTitle(float dt, const InputState& in) {
 void Game::updateExplore(float dt, const InputState& in) {
     portalCooldown_ = std::max(0.0f, portalCooldown_ - dt);
     interactCooldown_ = std::max(0.0f, interactCooldown_ - dt);
+    enemyGrace_ = std::max(0.0f, enemyGrace_ - dt);
     mapBanner_ = std::max(0.0f, mapBanner_ - dt);
     flash_ = std::max(0.0f, flash_ - dt);
     shake_ = std::max(0.0f, shake_ - dt);
@@ -1170,7 +1418,11 @@ void Game::updateExplore(float dt, const InputState& in) {
 
     clampPlayerToMap();
     updateCamera(dt);
-    if (!transition_) checkPortal();
+    if (transition_) return;
+    checkPortal();
+    if (transition_) return;
+    updateEnemies(dt);
+    checkEnemyContact();
 }
 
 void Game::updateDialogue(float dt, const InputState& in) {
@@ -1233,10 +1485,8 @@ void Game::updateBattle(float dt, const InputState& in) {
         } else {
             state_ = GameState::Explore;
         }
-        stepsSinceBattle_ = 0;
     } else if (battle_.fled()) {
         state_ = GameState::Explore;
-        stepsSinceBattle_ = 0;
     } else {
         state_ = GameState::GameOver;
         gameOverIndex_ = 0;
@@ -1477,8 +1727,16 @@ void Game::debugWarp(int map, int tx, int ty) {
     updateCamera(100.0f);
     state_ = GameState::Explore;
     portalCooldown_ = 1.0f;
+    enemyGrace_ = 0.0f;
     mapBanner_ = 2.5f;
     mapBannerText_ = world_.def(map_).name;
+}
+
+void Game::debugSetPlayerPos(float x, float y) {
+    px_ = x;
+    py_ = y;
+    clampPlayerToMap();
+    updateCamera(100.0f);
 }
 
 void Game::debugSetFacing(int facing) { facing_ = clampInt(facing, 0, 3); }
@@ -1526,6 +1784,19 @@ void Game::debugStartEnding() {
 void Game::debugGameOver() {
     state_ = GameState::GameOver;
     gameOverIndex_ = 0;
+}
+
+int Game::debugEnemyCount() const {
+    if (map_ < 0 || map_ >= static_cast<int>(enemies_.size())) return 0;
+    return static_cast<int>(enemies_[static_cast<size_t>(map_)].size());
+}
+
+const RoamingEnemy& Game::debugEnemy(int index) const {
+    static const RoamingEnemy dummy{};
+    if (map_ < 0 || map_ >= static_cast<int>(enemies_.size())) return dummy;
+    const auto& list = enemies_[static_cast<size_t>(map_)];
+    if (index < 0 || index >= static_cast<int>(list.size())) return dummy;
+    return list[static_cast<size_t>(index)];
 }
 
 }  // namespace rpg

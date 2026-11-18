@@ -48,6 +48,20 @@ struct FlyingText {
     uint32_t color = 0xFFFFFFFF;
 };
 
+// A monster that lives on the map and wanders around its spawn point instead
+// of appearing from a random step. Touching it starts a battle.
+struct RoamingEnemy {
+    EnemyType type = EnemyType::Slime;
+    float x = 0.0f, y = 0.0f;  // top-left of the 16x16 sprite cell
+    float homeX = 0.0f, homeY = 0.0f;
+    float dirX = 0.0f, dirY = 0.0f;
+    float moveTimer = 0.0f;
+    float pauseTimer = 0.0f;
+    float anim = 0.0f;
+    float respawnTimer = 0.0f;
+    bool active = true;
+};
+
 struct DialogueState {
     std::vector<std::string> pages;
     std::string speaker;
@@ -121,6 +135,7 @@ public:
 
     // Debug/test hooks (also used by the screenshot tool).
     void debugWarp(int map, int tx, int ty);
+    void debugSetPlayerPos(float x, float y);
     void debugSetFacing(int facing);
     void debugStartBattle(EnemyType type, bool boss);
     void debugOpenMenu();
@@ -140,6 +155,8 @@ public:
     void debugOpenShop();
     void debugStartEnding();
     void debugGameOver();
+    int debugEnemyCount() const;
+    const RoamingEnemy& debugEnemy(int index) const;
 
 private:
     void updateTitle(float dt, const InputState& in);
@@ -173,7 +190,16 @@ private:
     void wardenTalk();
     void guardianTalk();
     void flavorTalk(int dialogueId);
-    void pickRandomEnemy(EnemyType* type);
+
+    // Visible roaming monsters: deterministic spawn per map, slow wandering
+    // inside their habitat, and touch-triggered battles.
+    void resetRoamingEnemies(float avoidX = -1.0f, float avoidY = -1.0f);
+    void spawnRoamingEnemies(int map, float avoidX, float avoidY);
+    void updateEnemies(float dt);
+    void checkEnemyContact();
+    void startEnemyBattle(int index);
+    void pickEnemyDirection(RoamingEnemy& enemy);
+    bool enemyBlocked(int map, float nx, float ny, int self) const;
 
     void openMenu();
     void closeMenu();
@@ -223,6 +249,7 @@ private:
 
     Vec2 camera_;
     Rng rng_;
+    Rng enemyRng_;
     std::string saveBase_;
     std::string savePath_;
     int saveSlot_ = 0;
@@ -243,12 +270,13 @@ private:
     DialogueState dlg_;
 
     float stepAccum_ = 0.0f;
-    int stepsSinceBattle_ = 0;
     float portalCooldown_ = 0.0f;
     float interactCooldown_ = 0.0f;
+    float enemyGrace_ = 0.0f;
     float mapBanner_ = 0.0f;
     std::string mapBannerText_;
 
+    std::vector<std::vector<RoamingEnemy>> enemies_;
     std::vector<std::vector<bool>> chestOpened_;
     std::vector<bool> visited_;
     bool settingsDirty_ = false;

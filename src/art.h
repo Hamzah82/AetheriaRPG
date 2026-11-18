@@ -17,6 +17,7 @@ void heroBack(Framebuffer& fb, int x, int y, int scale, float time, int weapon, 
 void npc(Framebuffer& fb, int px, int py, NpcStyle style, int dir, float time);
 void chest(Framebuffer& fb, int px, int py, bool opened, float time);
 void enemy(Framebuffer& fb, EnemyType type, int cx, int cy, float time, bool hurt);
+void enemyWorld(Framebuffer& fb, EnemyType type, int px, int py, float time);
 void wardenWorld(Framebuffer& fb, int px, int py, float time);
 
 }  // namespace art

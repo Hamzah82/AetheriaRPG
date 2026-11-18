@@ -856,5 +856,73 @@ void enemy(Framebuffer& fb, EnemyType type, int cx, int cy, float time, bool hur
     }
 }
 
+// Compact overworld sprites: the battle versions are drawn much larger, so the
+// roaming monsters get their own readable 16x16 art.
+void enemyWorld(Framebuffer& fb, EnemyType type, int px, int py, float time) {
+    int cx = px + 8;
+    switch (type) {
+        case EnemyType::Slime: {
+            int bob = static_cast<int>(std::sin(time * 3.0f) * 1.0f);
+            int cy = py + 10 + bob;
+            shadow(fb, cx, py + 14, 7, 2, 90);
+            fb.fillEllipse(cx, cy, 8, 6, 0xFF1F5A2A);
+            fb.fillEllipse(cx, cy, 7, 5, 0xFF4FA83E);
+            fb.fillEllipse(cx - 2, cy - 2, 3, 2, 0xFF7FD060);
+            fb.fillRect(cx - 3, cy, 1, 2, 0xFF14301A);
+            fb.fillRect(cx + 2, cy, 1, 2, 0xFF14301A);
+            break;
+        }
+        case EnemyType::Bat: {
+            int flap = static_cast<int>(std::sin(time * 10.0f) * 3.0f);
+            shadow(fb, cx, py + 15, 5, 2, 70);
+            tri(fb, cx - 3, py + 8, cx - 9, py + 4 + flap, cx - 4, py + 11, 0xFF4A2A5A);
+            tri(fb, cx + 3, py + 8, cx + 9, py + 4 + flap, cx + 4, py + 11, 0xFF4A2A5A);
+            tri(fb, cx - 4, py + 8, cx - 8, py + 5 + flap, cx - 4, py + 10, 0xFF7A4A8A);
+            tri(fb, cx + 4, py + 8, cx + 8, py + 5 + flap, cx + 4, py + 10, 0xFF7A4A8A);
+            fb.fillEllipse(cx, py + 9, 4, 4, 0xFF2A1636);
+            fb.fillCircle(cx, py + 6, 3, 0xFF3A2048);
+            fb.fillRect(cx - 2, py + 5, 1, 1, 0xFFFF4A6A);
+            fb.fillRect(cx + 1, py + 5, 1, 1, 0xFFFF4A6A);
+            break;
+        }
+        case EnemyType::Wolf: {
+            shadow(fb, cx, py + 15, 9, 2, 90);
+            tri(fb, cx - 6, py + 9, cx - 10, py + 5, cx - 7, py + 12, 0xFF4A4A58);
+            fb.fillEllipse(cx, py + 10, 7, 4, 0xFF6A6A7C);
+            fb.fillEllipse(cx + 5, py + 8, 4, 3, 0xFF7A7A8C);
+            tri(fb, cx + 3, py + 5, cx + 3, py + 2, cx + 5, py + 6, 0xFF3A3A48);
+            tri(fb, cx + 6, py + 5, cx + 8, py + 2, cx + 8, py + 6, 0xFF3A3A48);
+            fb.fillRect(cx - 5, py + 12, 2, 3, 0xFF4A4A58);
+            fb.fillRect(cx - 1, py + 12, 2, 3, 0xFF4A4A58);
+            fb.fillRect(cx + 4, py + 12, 2, 3, 0xFF4A4A58);
+            fb.fillRect(cx + 7, py + 7, 1, 1, 0xFFFF3A3A);
+            break;
+        }
+        case EnemyType::Skeleton: {
+            shadow(fb, cx, py + 15, 5, 2, 80);
+            uint32_t bone = 0xFFE8E2D0, boneDark = 0xFFA8A090;
+            fb.fillCircle(cx, py + 5, 3, bone);
+            fb.fillRect(cx - 2, py + 4, 1, 1, 0xFF1A1A1A);
+            fb.fillRect(cx + 1, py + 4, 1, 1, 0xFFFF6A3A);
+            fb.fillRect(cx, py + 8, 1, 5, bone);
+            fb.fillRect(cx - 3, py + 9, 7, 1, boneDark);
+            fb.fillRect(cx - 2, py + 11, 5, 1, boneDark);
+            fb.fillRect(cx - 3, py + 13, 2, 1, bone);
+            fb.fillRect(cx + 2, py + 13, 2, 1, bone);
+            fb.fillRect(cx - 5, py + 8, 2, 1, boneDark);
+            fb.fillRect(cx + 4, py + 8, 2, 1, boneDark);
+            break;
+        }
+        default: {
+            shadow(fb, cx, py + 15, 6, 2, 80);
+            fb.fillEllipse(cx, py + 9, 6, 5, 0xFF241A38);
+            fb.fillCircle(cx, py + 5, 3, 0xFF3A2048);
+            fb.fillRect(cx - 2, py + 5, 1, 1, 0xFFFF4A6A);
+            fb.fillRect(cx + 1, py + 5, 1, 1, 0xFFFF4A6A);
+            break;
+        }
+    }
+}
+
 }  // namespace art
 }  // namespace rpg

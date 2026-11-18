@@ -1386,6 +1386,80 @@ void testPortalsAndCollision() {
     std::remove(path.c_str());
 }
 
+// ---------------------------------------------------------------- roaming enemies
+
+void testRoamingEnemies() {
+    std::string path = tmpPath("rpgcpp_roam.dat");
+    Game g(4242, path);
+    startExplore(g);
+
+    // Elmwood is a safe village: no roaming monsters.
+    CHECK_EQ(g.debugEnemyCount(), 0);
+
+    // Every combat map is populated with visible monsters standing on valid
+    // encounter terrain, away from NPCs, chests, and portals.
+    const int arrival[4][2] = {{14, 18}, {20, 16}, {16, 21}, {17, 23}};
+    for (int map = 1; map <= 3; ++map) {
+        g.debugWarp(map, arrival[map][0], arrival[map][1]);
+        CHECK(g.debugEnemyCount() > 0);
+        for (int i = 0; i < g.debugEnemyCount(); ++i) {
+            const RoamingEnemy& e = g.debugEnemy(i);
+            int tx = static_cast<int>(std::floor(e.x / TILE));
+            int ty = static_cast<int>(std::floor(e.y / TILE));
+            CHECK(e.active);
+            CHECK(g.world().encounter(map, tx, ty));
+            CHECK(!g.world().blocked(map, tx, ty));
+            CHECK(g.world().npcAt(map, tx, ty) == nullptr);
+            CHECK(g.world().chestAt(map, tx, ty) == nullptr);
+            CHECK(g.world().portalAt(map, tx, ty) == nullptr);
+        }
+    }
+
+    // Overworld monsters wander around instead of standing still. The road is
+    // safe, so the hero can watch them without being pulled into a battle.
+    g.debugWarp(1, 20, 16);
+    std::vector<std::pair<float, float>> before;
+    for (int i = 0; i < g.debugEnemyCount(); ++i)
+        before.push_back({g.debugEnemy(i).x, g.debugEnemy(i).y});
+    idle(g, 600);
+    CHECK(g.state() == GameState::Explore);
+    bool moved = false;
+    for (int i = 0; i < g.debugEnemyCount(); ++i) {
+        if (std::fabs(g.debugEnemy(i).x - before[static_cast<size_t>(i)].first) > 1.0f ||
+            std::fabs(g.debugEnemy(i).y - before[static_cast<size_t>(i)].second) > 1.0f)
+            moved = true;
+    }
+    CHECK(moved);
+
+    // Touching a monster starts a battle with exactly that monster type.
+    EnemyType type = g.debugEnemy(0).type;
+    g.debugWarp(1, static_cast<int>(std::floor(g.debugEnemy(0).x / TILE)),
+                static_cast<int>(std::floor(g.debugEnemy(0).y / TILE)));
+    g.debugSetPlayerPos(g.debugEnemy(0).x, g.debugEnemy(0).y);
+    idle(g, 40);
+    CHECK(g.state() == GameState::Battle);
+    CHECK_EQ(static_cast<int>(g.battle().enemyType()), static_cast<int>(type));
+    CHECK(!g.debugEnemy(0).active);
+    CHECK(!g.battle().isBoss());
+
+    // Winning returns to exploration; the defeated monster stays gone until
+    // its respawn timer runs out.
+    g.battle().forceEnemyHp(1);
+    g.battle().forceCommandPhase();
+    for (int i = 0; i < 160 && g.state() == GameState::Battle; ++i) tap(g, Key::Confirm);
+    CHECK(g.state() == GameState::Explore);
+    CHECK(!g.debugEnemy(0).active);
+    g.debugWarp(1, 20, 16);
+    idle(g, 2200);
+    CHECK(g.state() == GameState::Explore);
+    CHECK(g.debugEnemy(0).active);
+    // Respawned monsters return to their home anchor before wandering again.
+    CHECK(std::fabs(g.debugEnemy(0).x - g.debugEnemy(0).homeX) <= 6.0f * TILE);
+    CHECK(std::fabs(g.debugEnemy(0).y - g.debugEnemy(0).homeY) <= 6.0f * TILE);
+
+    std::remove(path.c_str());
+}
+
 // ---------------------------------------------------------------- menus/gameover
 
 void testMenusAndGameOver() {
@@ -2058,6 +2132,7 @@ int main() {
     testQuestFlow();
     testNewContent();
     testPortalsAndCollision();
+    testRoamingEnemies();
     testMenusAndGameOver();
     testUpdater();
     testAudio();

@@ -227,6 +227,12 @@ void Game::renderExplore(Framebuffer& fb) {
         if (npcHidden(n)) continue;
         items.push_back({static_cast<float>(n.y * TILE + 16), 1, static_cast<int>(i)});
     }
+    if (map_ >= 0 && map_ < static_cast<int>(enemies_.size())) {
+        const auto& roamers = enemies_[static_cast<size_t>(map_)];
+        for (size_t i = 0; i < roamers.size(); ++i)
+            if (roamers[i].active)
+                items.push_back({roamers[i].y + 16.0f, 3, static_cast<int>(i)});
+    }
     items.push_back({py_ + 16.0f, 2, 0});
     std::stable_sort(items.begin(), items.end(),
                      [](const Drawable& a, const Drawable& b) { return a.y < b.y; });
@@ -239,6 +245,10 @@ void Game::renderExplore(Framebuffer& fb) {
         } else if (d.kind == 1) {
             const auto& npc = md.npcs[static_cast<size_t>(d.index)];
             art::npc(fb, npc.x * TILE - camX, npc.y * TILE - camY, npc.style, npc.facing, globalTime_);
+        } else if (d.kind == 3) {
+            const auto& e = enemies_[static_cast<size_t>(map_)][static_cast<size_t>(d.index)];
+            art::enemyWorld(fb, e.type, static_cast<int>(std::floor(e.x)) - camX,
+                            static_cast<int>(std::floor(e.y)) - camY, globalTime_ + e.anim);
         } else {
             art::player(fb, static_cast<int>(px_) - camX, static_cast<int>(py_) - camY, facing_,
                         animPhase_, moving_, player_.weapon, player_.armor);
@@ -621,6 +631,13 @@ void Game::renderMinimap(Framebuffer& fb, int x, int y, int w, int h) {
         if (npcHidden(n)) continue;
         fb.fillRect(ox + n.x * scale, oy + n.y * scale, std::max(1, scale),
                     std::max(1, scale), 0xFFFFA8C8);
+    }
+    if (map_ >= 0 && map_ < static_cast<int>(enemies_.size())) {
+        for (const RoamingEnemy& e : enemies_[static_cast<size_t>(map_)]) {
+            if (!e.active) continue;
+            fb.fillRect(ox + tileOfX(e.x + 8.0f) * scale, oy + tileOfY(e.y + 12.0f) * scale,
+                        std::max(1, scale), std::max(1, scale), pal::hp);
+        }
     }
     if ((static_cast<int>(globalTime_ * 4.0f) & 1) == 0) {
         fb.fillRect(ox + tileOfX(px_ + 8.0f) * scale, oy + tileOfY(py_ + 8.0f) * scale,
