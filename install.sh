@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh - build dan pasang Aetheria: Bayangan Terakhir
+# install.sh - build dan pasang Pelita di Atas Segara Garam
 #
 # Skrip ini memeriksa dependensi build, menawarkan pemasangan paket yang
 # diperlukan, mengkloning sumber ke ~/.aetheria/source, membangun game dari
@@ -77,7 +77,7 @@ usage() {
     cat <<'EOF'
 Penggunaan: ./install.sh [opsi]
 
-Membangun dan memasang Aetheria: Bayangan Terakhir.
+Membangun dan memasang Pelita di Atas Segara Garam.
 
 Instalasi biasa mengkloning sumber dari GitHub ke folder game, lalu membangun
 game dari salinan itu. Pemasangan ulang memperbarui salinan tersebut dengan
@@ -562,7 +562,7 @@ prepare_source() {
 }
 
 if [ "$UNINSTALL" -eq 1 ]; then
-    info "Menghapus Aetheria dari $GAME_DIR..."
+    info "Menghapus Pelita dari $GAME_DIR..."
     removed=0
     for file in "$BINARY" "$BINARY.old" "$LAUNCHER" "$GAME_DIR/rpgcpp" "$GAME_DIR/aetheria"; do
         if [ -e "$file" ]; then
@@ -579,7 +579,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
         removed=1
     fi
     if [ "$removed" -eq 0 ]; then
-        warn "Tidak ada berkas Aetheria di $GAME_DIR"
+        warn "Tidak ada berkas Pelita di $GAME_DIR"
     fi
     if [ "$IS_WINDOWS" -eq 1 ]; then
         shortcut="$START_MENU_DIR/Aetheria.lnk"
@@ -681,7 +681,7 @@ if [ "$CLEAN_BUILD" -eq 1 ]; then
     make -C "$BUILD_DIR" clean
 fi
 
-info "Membangun Aetheria dengan $CXX_BIN -j$JOBS..."
+info "Membangun Pelita dengan $CXX_BIN -j$JOBS..."
 make -C "$BUILD_DIR" -j"$JOBS" CXX="$CXX_BIN"
 BUILD_BINARY="$BUILD_DIR/rpgcpp$EXE_SUFFIX"
 if [ ! -f "$BUILD_BINARY" ]; then
@@ -732,7 +732,7 @@ install_windows_shortcut() {
 \$shortcut.TargetPath = '$target'
 \$shortcut.WorkingDirectory = '$workdir'
 \$shortcut.IconLocation = '$target_win,0'
-\$shortcut.Description = 'Aetheria: Bayangan Terakhir'
+\$shortcut.Description = 'Pelita di Atas Segara Garam'
 \$shortcut.Save()
 EOF
     if "$powershell_bin" -NoProfile -ExecutionPolicy Bypass \
@@ -755,7 +755,7 @@ if [ "$IS_WINDOWS" -eq 1 ]; then
     TMP_LAUNCHER="$tmp_launcher"
     cat >"$tmp_launcher" <<'LAUNCHER'
 @echo off
-rem Jalankan Aetheria dari folder game agar savegame.dat tetap di sini.
+rem Jalankan Pelita dari folder game agar savegame.dat tetap di sini.
 cd /d "%~dp0"
 start "" "%~dp0rpgcpp.exe" %*
 LAUNCHER
@@ -769,7 +769,7 @@ else
     TMP_LAUNCHER="$tmp_launcher"
     cat >"$tmp_launcher" <<'LAUNCHER'
 #!/bin/sh
-# Jalankan Aetheria dari folder game agar savegame.dat tetap di sini.
+# Jalankan Pelita dari folder game agar savegame.dat tetap di sini.
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P) || exit 1
 cd "$DIR" || exit 1
 exec ./rpgcpp "$@"
@@ -793,7 +793,7 @@ LAUNCHER
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Aetheria: Bayangan Terakhir
+Name=Pelita di Atas Segara Garam
 GenericName=RPG 2D
 Comment=Petualangan RPG 2D prosedural berbahasa Indonesia
 Exec="$LAUNCHER"
@@ -823,7 +823,7 @@ else
     ok "Uji asap biner terpasang berhasil."
 fi
 
-printf '\n%sAetheria siap dimainkan.%s\n' "$C_GREEN" "$C_RESET"
+printf '\n%sPelita siap dimainkan.%s\n' "$C_GREEN" "$C_RESET"
 printf '  Folder   : %s\n' "$GAME_DIR"
 printf '  Biner    : %s\n' "$BINARY"
 printf '  Jalankan : %s\n' "$LAUNCHER"

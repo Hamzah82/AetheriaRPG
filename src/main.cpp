@@ -165,16 +165,23 @@ int runScreenshots(const Options& opt) {
     tick(8);
     save("05_cave");
 
+    // Recruit the party so the remaining screenshots exercise followers and the
+    // party battle status.
+    game.debugRecruit(CompanionId::Sekar);
+    game.debugRecruit(CompanionId::Bima);
+    game.debugRecruit(CompanionId::Larasati);
+    game.debugRecruit(CompanionId::Bagas);
+
     game.debugWarp(2, 17, 7);
     tick(8);
     save("06_boss_room");
 
-    game.debugStartBattle(EnemyType::Wolf, false);
+    game.debugStartBattle(EnemyType::GukAbu, false);
     confirmPress(2);
     tick(24);
     save("07_battle_wolf");
 
-    game.debugStartBattle(EnemyType::Warden, true);
+    game.debugStartBattle(EnemyType::Gajamina, true);
     confirmPress(2);
     tick(24);
     save("08_battle_boss");
@@ -217,11 +224,11 @@ int runScreenshots(const Options& opt) {
     tick(6);
     save("16_gameover");
 
-    game.debugWarp(3, 17, 23);
+    game.debugWarp(4, 17, 23);
     tick(8);
     save("17_ruins");
 
-    game.debugStartBattle(EnemyType::Guardian, true);
+    game.debugStartBattle(EnemyType::GemaPertama, true);
     confirmPress(2);
     tick(24);
     save("18_battle_guardian");
@@ -303,7 +310,7 @@ int main(int argc, char** argv) {
     Options opt = parseArgs(argc, argv);
     if (opt.showHelp) {
         std::printf(
-            "Aetheria: Bayangan Terakhir\n"
+            "Pelita di Atas Segara Garam\n"
             "Pemakaian: ./rpgcpp [opsi]\n"
             "  --scale N        perbesaran jendela (1-6, bawaan 3)\n"
             "  --seed N         benih acak\n"
@@ -327,7 +334,7 @@ int main(int argc, char** argv) {
 
     Platform platform;
     std::string err;
-    if (!platform.open(opt.scale, "Aetheria: Bayangan Terakhir", &err, wantFullscreen)) {
+    if (!platform.open(opt.scale, "Pelita di Atas Segara Garam", &err, wantFullscreen)) {
         std::fprintf(stderr, "%s\n", err.c_str());
         return 1;
     }

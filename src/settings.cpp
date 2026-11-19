@@ -93,7 +93,7 @@ bool saveSettings(const std::string& path, const Settings& settings, std::string
             if (err) *err = "Tidak bisa menulis berkas pengaturan.";
             return false;
         }
-        f << "# Aetheria: Bayangan Terakhir\n";
+        f << "# Pelita di Atas Segara Garam\n";
         f << "music=" << clampf(settings.musicVolume, 0.0f, 1.0f) << "\n";
         f << "sfx=" << clampf(settings.sfxVolume, 0.0f, 1.0f) << "\n";
         f << "muted=" << (settings.muted ? 1 : 0) << "\n";

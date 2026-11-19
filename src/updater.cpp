@@ -730,6 +730,7 @@ std::string findSourceCheckout() {
             (fs::path(profile) / ".aetheria" / "source").string());
     }
     if (const char* local = std::getenv("LOCALAPPDATA"); local && *local) {
+        candidates.push_back((fs::path(local) / "Pelita" / "source").string());
         candidates.push_back((fs::path(local) / "Aetheria" / "source").string());
     }
 #endif

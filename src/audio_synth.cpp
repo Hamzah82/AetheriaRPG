@@ -366,8 +366,8 @@ const char* musicName(MusicId id) {
         case MusicId::None: return "hening";
         case MusicId::Title: return "judul";
         case MusicId::Village: return "desa";
-        case MusicId::Overworld: return "padang";
-        case MusicId::Cave: return "gua";
+        case MusicId::Overworld: return "kota";
+        case MusicId::Cave: return "dungeon";
         case MusicId::Battle: return "pertarungan";
         case MusicId::Boss: return "boss";
         case MusicId::Ending: return "ending";

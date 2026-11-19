@@ -10,11 +10,16 @@ enum class ItemId : uint8_t {
     Gold,
     Potion,
     Elixir,
-    IronSword,
-    ChainMail,
-    Sunstone,
-    DawnSword,
-    DawnShield,
+    Oil,
+    SaltCrystal,
+    SoulDagger,
+    TuningStaff,
+    TirtaCore,
+    SaltNoSorrow,
+    KidungBook,
+    CourtKey,
+    AshCharm,
+    ResonanceRing,
     Count,
 };
 
@@ -38,43 +43,50 @@ struct ArmorDef {
 };
 
 extern const ItemDef ITEMS[static_cast<int>(ItemId::Count)];
-extern const WeaponDef WEAPONS[4];
-extern const ArmorDef ARMORS[4];
+extern const WeaponDef WEAPONS[5];
+extern const ArmorDef ARMORS[5];
 
 struct Player {
     int level = 1;
     int xp = 0;
     int gold = 30;
 
-    int hp = 42;
-    int maxHp = 42;
-    int mp = 12;
-    int maxMp = 12;
+    int hp = 44;
+    int maxHp = 44;
+    int mp = 14;
+    int maxMp = 14;
 
-    int baseAtk = 6;
-    int baseDef = 4;
+    int baseAtk = 7;
+    int baseDef = 5;
 
     int weapon = 0;
     int armor = 0;
 
     int potions = 2;
-    int elixirs = 0;
+    int elixirs = 1;
+    int oil = 2;
+    int saltCrystal = 0;
 
-    bool hasSunstone = false;
+    bool hasAshCharm = false;
+    bool hasResonanceRing = false;
+    bool hasSaltNoSorrow = false;
+    bool hasKidungBook = false;
+    bool hasTirtaCore = false;
+    bool hasCourtKey = false;
 
     Player() { recalcStats(true); }
 
     int atk() const { return baseAtk + WEAPONS[weapon].atk; }
     int def() const { return baseDef + ARMORS[armor].def; }
-    int xpToNext() const { return 12 + level * level * 4 + level * 6; }
+    int xpToNext() const { return 14 + level * level * 4 + level * 6; }
 
     void recalcStats(bool fullHeal) {
-        int nmaxHp = 34 + level * 8;
-        int nmaxMp = 6 + level * 4;
+        int nmaxHp = 36 + level * 9;
+        int nmaxMp = 8 + level * 4;
         maxHp = nmaxHp;
         maxMp = nmaxMp;
-        baseAtk = 4 + level * 2;
-        baseDef = 2 + level * 2;
+        baseAtk = 5 + level * 2;
+        baseDef = 3 + level * 2;
         if (fullHeal) {
             hp = maxHp;
             mp = maxMp;
@@ -110,13 +122,13 @@ struct Player {
     bool usePotion() {
         if (potions <= 0 || hp >= maxHp) return false;
         --potions;
-        healHp(40);
+        healHp(45);
         return true;
     }
     bool useElixir() {
         if (elixirs <= 0 || mp >= maxMp) return false;
         --elixirs;
-        healMp(25);
+        healMp(30);
         return true;
     }
 

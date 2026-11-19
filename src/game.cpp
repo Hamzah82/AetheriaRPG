@@ -23,39 +23,47 @@ bool validFloat(float v) { return std::isfinite(v); }
 
 int roamSpeed(EnemyType type) {
     switch (type) {
-        case EnemyType::Bat: return 23;
-        case EnemyType::Wolf: return 30;
-        case EnemyType::Skeleton: return 14;
+        case EnemyType::GukAbu: return 30;
+        case EnemyType::ArwahGema: return 18;
+        case EnemyType::PenambangPualam: return 12;
+        case EnemyType::Koral: return 8;
+        case EnemyType::KumbangPualam: return 10;
         default: return 11;
     }
 }
 
 EnemyType rollRoamer(int map, Rng& rng) {
     int r = rng.range(0, 99);
+    if (map == 8) {
+        if (r < 40) return EnemyType::ArwahGema;
+        if (r < 75) return EnemyType::PenambangPualam;
+        return EnemyType::GukAbu;
+    }
     if (map == 3) {
-        if (r < 45) return EnemyType::Skeleton;
-        if (r < 80) return EnemyType::Wolf;
-        return EnemyType::Bat;
+        if (r < 35) return EnemyType::ArwahGema;
+        if (r < 70) return EnemyType::PenambangPualam;
+        return EnemyType::Koral;
+    }
+    if (map == 4) {
+        if (r < 35) return EnemyType::ArwahGema;
+        if (r < 70) return EnemyType::PenambangPualam;
+        return EnemyType::Koral;
     }
     if (map == 2) {
-        if (r < 25) return EnemyType::Bat;
-        if (r < 60) return EnemyType::Wolf;
-        return EnemyType::Skeleton;
+        if (r < 40) return EnemyType::KumbangPualam;
+        if (r < 75) return EnemyType::GukAbu;
+        return EnemyType::Koral;
     }
-    if (map == 1) {
-        if (r < 50) return EnemyType::Slime;
-        if (r < 80) return EnemyType::Bat;
-        return EnemyType::Wolf;
-    }
-    return EnemyType::Slime;
+    return EnemyType::KumbangPualam;
 }
 
 }  // namespace
 
 const ShopItem SHOP[SHOP_COUNT] = {
-    {0, 0, "Ramuan", 12},           {1, 0, "Eliksir", 30},
-    {2, 1, "Pedang Perunggu", 60},  {3, 1, "Armor Kulit", 50},
-    {2, 2, "Pedang Besi", 140},     {3, 2, "Baju Rantai", 130},
+    {0, 0, "Ramuan Pelita", 14},   {1, 0, "Eliksir Sumsum", 34},
+    {2, 0, "Minyak Sumsum", 8},    {3, 1, "Belati Besi", 80},
+    {4, 1, "Jas Kulit", 60},       {3, 2, "Belati Penarah Jiwa", 180},
+    {4, 2, "Baju Rantai", 150},
 };
 
 Game::Game(uint64_t seed, std::string savePath)
@@ -67,12 +75,32 @@ Game::Game(uint64_t seed, std::string savePath)
     for (int i = 0; i < world_.count(); ++i)
         chestOpened_[static_cast<size_t>(i)].assign(world_.def(i).chests.size(), false);
     visited_.assign(static_cast<size_t>(world_.count()), false);
-    map_ = 0;
+    map_ = world_.indexOf("village");
+    if (map_ < 0) map_ = 0;
     px_ = 14 * TILE;
-    py_ = 18 * TILE;
+    py_ = 16 * TILE;
     facing_ = 1;
     resetRoamingEnemies();
     updateCamera(100.0f);
+}
+
+int Game::memoryCount() const {
+    int n = 0;
+    for (int i = 0; i < 12; ++i)
+        if (flags_.memories & (1 << i)) ++n;
+    return n;
+}
+
+bool Game::hasMemory(int id) const {
+    return id >= 0 && id < 12 && (flags_.memories & (1 << id)) != 0;
+}
+
+int Game::companionCount() const { return static_cast<int>(companions_.size()); }
+
+const Companion& Game::companion(int index) const {
+    static const Companion dummy = makeCompanion(CompanionId::Sekar, 1);
+    if (index < 0 || index >= static_cast<int>(companions_.size())) return dummy;
+    return companions_[static_cast<size_t>(index)];
 }
 
 void Game::markVisited(int map) {
@@ -81,24 +109,63 @@ void Game::markVisited(int map) {
 }
 
 bool Game::npcHidden(const NpcSpawn& npc) const {
-    if (npc.style == NpcStyle::Warden && flags_.bossDefeated) return true;
-    if (npc.style == NpcStyle::Guardian && flags_.ruinsCleared) return true;
-    return false;
+    switch (npc.style) {
+        case NpcStyle::Bima: return flags_.bimaJoined;
+        case NpcStyle::Sekar: return flags_.sekarJoined;
+        case NpcStyle::Larasati: return flags_.larasJoined;
+        case NpcStyle::Bagas: return flags_.bagasJoined;
+        case NpcStyle::Warden: return flags_.fatherMemory;
+        case NpcStyle::Guardian:
+            if (map_ == 4) return flags_.gajaminaDefeated;
+            if (map_ == 8) return flags_.gemaDefeated;
+            return false;
+        case NpcStyle::Guntur: return flags_.gunturDefeated;
+        case NpcStyle::Adipati: return flags_.gameCompleted;
+        case NpcStyle::Seno:
+            if (map_ == 7) return !(flags_.act >= 4 || flags_.senoDefect);
+            return false;
+        default: return false;
+    }
 }
 
 std::string Game::questObjective() const {
-    if (!flags_.metElder) return "Bicara dengan Tetua Ardan di Desa Elmwood.";
-    if (!flags_.bossDefeated) return "Cari Batu Matahari di Gua Bayangan.";
-    if (!flags_.gameCompleted) return "Bawa Batu Matahari ke Tetua Ardan.";
-    if (!flags_.ruinsCleared) return "Taklukkan Penjaga Fajar di Reruntuhan Fajar.";
-    return "Semua misi selesai. Lembah Aetheria aman.";
+    if (!flags_.introSeen) return "Bicara dengan Mbok Ratih di Warung Asap.";
+    switch (flags_.act) {
+        case 0:
+            if (!flags_.courierSaved) return "Bicara dengan Mbok Ratih di Warung Asap.";
+            return "Berlayar ke Pelabuhan Besi Kertarajasa.";
+        case 1:
+            if (!flags_.bimaJoined) return "Temui Bima di bengkel Kertarajasa.";
+            if (!flags_.sekarJoined) return "Temui Kapten Sekar di dermaga.";
+            if (!flags_.larasJoined) return "Temukan Larasati di distrik bawah.";
+            if (!hasMemory(1) || !hasMemory(2))
+                return "Baca gema di gudang minyak Kertarajasa.";
+            return "Berlayar ke Candi Tenggelam Saptatirta.";
+        case 2:
+            if (!flags_.bagasJoined) return "Temui Kakek Bagas di Candi Saptatirta.";
+            if (!flags_.fatherMemory) return "Selidiki Sumur Ratapan.";
+            return "Kembali ke Kertarajasa.";
+        case 3:
+            if (!flags_.nirmalaTruth) return "Hadapi Bunda Nirmala di Biara Pelita.";
+            if (!flags_.kiranaHelped) return "Temui Kirana di Kraton Pualam Surya.";
+            if (!flags_.gunturDefeated) return "Hentikan Raden Guntur.";
+            return "Berlayar ke Jantung Palung Sunyi.";
+        case 4:
+            return "Tutup retakan di Jantung Palung Sunyi.";
+        default:
+            return "Nusakalpa menunggu.";
+    }
 }
 
 std::string Game::sideQuestObjective() const {
-    if (flags_.herbQuestDone) return "Selesai: Ramuan untuk Ruslan.";
-    if (!flags_.herbQuestAccepted) return "Petani Ruslan di Elmwood punya permintaan.";
-    return "Kumpulkan 3 Ramuan untuk Petani Ruslan (" + std::to_string(player_.potions) +
-           "/3).";
+    if (flags_.lanternQuestDone) return "Selesai: Lentera Nenek Sari.";
+    if (flags_.lanternQuestAccepted) return "Temukan lentera di Rimba Karang-Kelabu.";
+    if (flags_.herbQuestDone) return "Selesai: Ramuan untuk Petani.";
+    if (flags_.herbQuestAccepted)
+        return "Bawa 3 Ramuan Pelita (" + std::to_string(player_.potions) + "/3).";
+    if (flags_.hiddenQuestDone) return "Selesai: Nyanyian Taman Lentera Mati.";
+    if (flags_.gajaminaDefeated) return "Selesai: Gajamina Pualam.";
+    return "Misi sampingan dapat ditemukan di desa dan kota.";
 }
 
 bool Game::takeSettingsDirty() {
@@ -113,8 +180,6 @@ void Game::setAudio(Audio* audio) {
     updateMusic();
 }
 
-void Game::setUpdater(Updater* updater) { updater_ = updater; }
-
 void Game::playSfx(SfxId id) {
     if (audio_) audio_->playSfx(id);
 }
@@ -123,35 +188,28 @@ void Game::updateMusic() {
     if (!audio_) return;
     MusicId track = MusicId::None;
     switch (state_) {
-        case GameState::Title:
-            track = MusicId::Title;
-            break;
+        case GameState::Title: track = MusicId::Title; break;
         case GameState::Explore:
         case GameState::Dialogue:
         case GameState::Menu:
         case GameState::Shop:
-            if (map_ == 1) track = MusicId::Overworld;
-            else if (map_ == 2 || map_ == 3) track = MusicId::Cave;
+            if (map_ == 2 || map_ == 3 || map_ == 4 || map_ == 8) track = MusicId::Cave;
+            else if (map_ == 1 || map_ == 7) track = MusicId::Overworld;
             else track = MusicId::Village;
             break;
         case GameState::Battle:
             track = battle_.isBoss() ? MusicId::Boss : MusicId::Battle;
             break;
-        case GameState::GameOver:
-            track = MusicId::None;
-            break;
-        case GameState::Ending:
-            track = MusicId::Ending;
-            break;
+        case GameState::GameOver: track = MusicId::None; break;
+        case GameState::Ending: track = MusicId::Ending; break;
     }
     if (track == MusicId::None) audio_->stopMusic();
     else audio_->playMusic(track);
 }
 
 void Game::menuFeedback(const InputState& in) {
-    if (in.hit(Key::Up) || in.hit(Key::Down) || in.hit(Key::Left) || in.hit(Key::Right)) {
+    if (in.hit(Key::Up) || in.hit(Key::Down) || in.hit(Key::Left) || in.hit(Key::Right))
         playSfx(SfxId::MenuMove);
-    }
     if (in.hit(Key::Confirm)) playSfx(SfxId::MenuSelect);
     if (in.hit(Key::Cancel)) playSfx(SfxId::MenuCancel);
 }
@@ -159,10 +217,12 @@ void Game::menuFeedback(const InputState& in) {
 void Game::newGame() {
     player_ = Player();
     flags_ = Flags();
+    companions_.clear();
+    followers_.clear();
     map_ = world_.indexOf("village");
     if (map_ < 0) map_ = 0;
     px_ = 14 * TILE;
-    py_ = 18 * TILE;
+    py_ = 16 * TILE;
     facing_ = 1;
     moveAxis(0.0f, 0.0f);
     clampPlayerToMap();
@@ -189,9 +249,9 @@ void Game::newGame() {
     mapBannerText_ = world_.def(map_).name;
     state_ = GameState::Explore;
     startDialogue("Narator",
-                  {"Dahulu, Lembah Aetheria diterangi oleh Batu Matahari.",
-                   "Kini relik itu hilang, dan bayangan merayap keluar dari Gua Bayangan.",
-                   "Elmwood menanti seorang pahlawan. Mungkin... kau?"},
+                  {"Nusakalpa: kepulauan garam di bawah langit kelabu.",
+                   "Ingatan adalah bahan bakar terakhir, dan Raka Damar adalah Juru Gema.",
+                   "Di Desa Tambak-Abu, pelita terakhir sedang redup."},
                   [this] {
                       flags_.introSeen = true;
                       state_ = GameState::Explore;
@@ -199,7 +259,7 @@ void Game::newGame() {
 }
 
 bool Game::hasSave() const {
-    std::ifstream f(savePath_);
+    std::ifstream f(savePath_, std::ios::binary);
     return f.good();
 }
 
@@ -241,24 +301,8 @@ bool Game::saveGame(std::string* err) { return writeSaveTo(savePath_, err); }
 
 bool Game::writeSaveTo(const std::string& path, std::string* err) {
     if (err) err->clear();
-    int flagBits = 0;
-    if (flags_.questAccepted) flagBits |= 1;
-    if (flags_.bossDefeated) flagBits |= 2;
-    if (flags_.sunstoneFound) flagBits |= 4;
-    if (flags_.gameCompleted) flagBits |= 8;
-    if (flags_.metElder) flagBits |= 16;
-    if (flags_.introSeen) flagBits |= 32;
-
-    int questBits = 0;
-    if (flags_.herbQuestAccepted) questBits |= 1;
-    if (flags_.herbQuestDone) questBits |= 2;
-    if (flags_.ruinsCleared) questBits |= 4;
-    int visitedMask = 0;
-    for (size_t i = 0; i < visited_.size() && i < 31; ++i)
-        if (visited_[i]) visitedMask |= (1 << i);
-
     std::ostringstream out;
-    out << "version 2\n";
+    out << "version 3\n";
     out << "map " << map_ << "\n";
     out << "x " << px_ << "\n";
     out << "y " << py_ << "\n";
@@ -268,26 +312,49 @@ bool Game::writeSaveTo(const std::string& path, std::string* err) {
     out << "gold " << player_.gold << "\n";
     out << "hp " << player_.hp << "\n";
     out << "mp " << player_.mp << "\n";
+    out << "oil " << player_.oil << "\n";
+    out << "salt " << player_.saltCrystal << "\n";
     out << "weapon " << player_.weapon << "\n";
     out << "armor " << player_.armor << "\n";
     out << "potions " << player_.potions << "\n";
     out << "elixirs " << player_.elixirs << "\n";
-    out << "sunstone " << (player_.hasSunstone ? 1 : 0) << "\n";
-    out << "flags " << flagBits << "\n";
-    out << "quests " << questBits << "\n";
-    out << "visited " << visitedMask << "\n";
-    out << "chests";
-    for (int i = 0; i < world_.count(); ++i) {
-        int mask = 0;
-        const auto& opened = chestOpened_[static_cast<size_t>(i)];
-        for (size_t k = 0; k < opened.size() && k < 31; ++k)
-            if (opened[k]) mask |= (1 << k);
-        out << " " << mask;
-    }
-    out << "\n";
-
-    // writeSaveText encodes the payload, writes a temporary file, and replaces
-    // the target atomically so a crash cannot leave a half-written save.
+    out << "resonance " << flags_.resonance << "\n";
+    out << "act " << flags_.act << "\n";
+    out << "stage " << flags_.stage << "\n";
+    out << "memories " << flags_.memories << "\n";
+    out << "ending " << flags_.endingId << "\n";
+    out << "senoChoice " << flags_.senoChoice << "\n";
+    out << "sekarChoice " << flags_.sekarChoice << "\n";
+    out << "f_intro " << (flags_.introSeen ? 1 : 0) << "\n";
+    out << "f_courier " << (flags_.courierSaved ? 1 : 0) << "\n";
+    out << "f_bima " << (flags_.bimaJoined ? 1 : 0) << "\n";
+    out << "f_sekar " << (flags_.sekarJoined ? 1 : 0) << "\n";
+    out << "f_laras " << (flags_.larasJoined ? 1 : 0) << "\n";
+    out << "f_bagas " << (flags_.bagasJoined ? 1 : 0) << "\n";
+    out << "f_father " << (flags_.fatherMemory ? 1 : 0) << "\n";
+    out << "f_nirmala " << (flags_.nirmalaTruth ? 1 : 0) << "\n";
+    out << "f_kirana " << (flags_.kiranaHelped ? 1 : 0) << "\n";
+    out << "f_seno " << (flags_.senoDefect ? 1 : 0) << "\n";
+    out << "f_guntur " << (flags_.gunturDefeated ? 1 : 0) << "\n";
+    out << "f_gema " << (flags_.gemaDefeated ? 1 : 0) << "\n";
+    out << "f_complete " << (flags_.gameCompleted ? 1 : 0) << "\n";
+    out << "q_herb " << (flags_.herbQuestAccepted ? 1 : 0) << "\n";
+    out << "q_herbDone " << (flags_.herbQuestDone ? 1 : 0) << "\n";
+    out << "q_lantern " << (flags_.lanternQuestAccepted ? 1 : 0) << "\n";
+    out << "q_lanternDone " << (flags_.lanternQuestDone ? 1 : 0) << "\n";
+    out << "q_sekar " << (flags_.sekarQuestAccepted ? 1 : 0) << "\n";
+    out << "q_sekarDone " << (flags_.sekarQuestDone ? 1 : 0) << "\n";
+    out << "q_hidden " << (flags_.hiddenQuestDone ? 1 : 0) << "\n";
+    out << "q_gajamina " << (flags_.gajaminaDefeated ? 1 : 0) << "\n";
+    out << "hasAshCharm " << (player_.hasAshCharm ? 1 : 0) << "\n";
+    out << "hasRing " << (player_.hasResonanceRing ? 1 : 0) << "\n";
+    out << "hasSaltNoSorrow " << (player_.hasSaltNoSorrow ? 1 : 0) << "\n";
+    out << "hasKidung " << (player_.hasKidungBook ? 1 : 0) << "\n";
+    out << "hasTirta " << (player_.hasTirtaCore ? 1 : 0) << "\n";
+    out << "hasCourtKey " << (player_.hasCourtKey ? 1 : 0) << "\n";
+    for (const auto& c : companions_)
+        out << "comp " << static_cast<int>(c.id) << " " << c.level << " " << c.hp << " "
+            << (c.recruited ? 1 : 0) << "\n";
     return writeSaveText(path, out.str(), err);
 }
 
@@ -339,7 +406,7 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
     };
 
     int version = getInt("version", 0, 0, 999);
-    if (version != 1 && version != 2) return fail("Versi simpanan tidak dikenal.");
+    if (version != 1 && version != 2 && version != 3) return fail("Versi simpanan tidak dikenal.");
     int newMap = getInt("map", -1, -1, world_.count());
     if (newMap < 0 || newMap >= world_.count()) return fail("Peta pada simpanan tidak valid.");
 
@@ -351,11 +418,18 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
     p.hp = getInt("hp", p.maxHp, 0, p.maxHp);
     if (p.hp <= 0) p.hp = 1;
     p.mp = getInt("mp", p.maxMp, 0, p.maxMp);
-    p.weapon = getInt("weapon", 0, 0, 3);
-    p.armor = getInt("armor", 0, 0, 3);
+    p.oil = getInt("oil", 2, 0, 99);
+    p.saltCrystal = getInt("salt", 0, 0, 999);
+    p.weapon = getInt("weapon", 0, 0, 4);
+    p.armor = getInt("armor", 0, 0, 4);
     p.potions = getInt("potions", 0, 0, 99);
     p.elixirs = getInt("elixirs", 0, 0, 99);
-    p.hasSunstone = getInt("sunstone", 0, 0, 1) != 0;
+    p.hasAshCharm = getInt("hasAshCharm", 0, 0, 1) != 0;
+    p.hasResonanceRing = getInt("hasRing", 0, 0, 1) != 0;
+    p.hasSaltNoSorrow = getInt("hasSaltNoSorrow", 0, 0, 1) != 0;
+    p.hasKidungBook = getInt("hasKidung", 0, 0, 1) != 0;
+    p.hasTirtaCore = getInt("hasTirta", 0, 0, 1) != 0;
+    p.hasCourtKey = getInt("hasCourtKey", 0, 0, 1) != 0;
 
     float nx = getFloat("x", 224.0f);
     float ny = getFloat("y", 288.0f);
@@ -364,7 +438,6 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
     nx = clampf(nx, 0.0f, static_cast<float>(md.w * TILE - TILE));
     ny = clampf(ny, 0.0f, static_cast<float>(md.h * TILE - TILE));
 
-    // Ensure the loaded position is not inside a wall.
     bool freeSpot = false;
     for (int radius = 0; radius <= 5 && !freeSpot; ++radius) {
         for (int dy = -radius; dy <= radius && !freeSpot; ++dy) {
@@ -381,26 +454,57 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
     }
     if (!freeSpot) return fail("Posisi simpanan tidak bisa dipakai.");
 
-    int flagBits = getInt("flags", 0, 0, 255);
-    Player oldPlayer = player_;
-    Flags oldFlags = flags_;
-    (void)oldPlayer;
-    (void)oldFlags;
+    Flags fl;
+    fl.resonance = getInt("resonance", 70, 0, 100);
+    fl.act = getInt("act", 0, 0, 4);
+    fl.stage = getInt("stage", 0, 0, 99);
+    fl.memories = getInt("memories", 0, 0, 4095);
+    fl.endingId = getInt("ending", 0, 0, 4);
+    fl.senoChoice = getInt("senoChoice", 0, 0, 2);
+    fl.sekarChoice = getInt("sekarChoice", 0, 0, 3);
+    fl.introSeen = getInt("f_intro", 0, 0, 1) != 0;
+    fl.courierSaved = getInt("f_courier", 0, 0, 1) != 0;
+    fl.bimaJoined = getInt("f_bima", 0, 0, 1) != 0;
+    fl.sekarJoined = getInt("f_sekar", 0, 0, 1) != 0;
+    fl.larasJoined = getInt("f_laras", 0, 0, 1) != 0;
+    fl.bagasJoined = getInt("f_bagas", 0, 0, 1) != 0;
+    fl.fatherMemory = getInt("f_father", 0, 0, 1) != 0;
+    fl.nirmalaTruth = getInt("f_nirmala", 0, 0, 1) != 0;
+    fl.kiranaHelped = getInt("f_kirana", 0, 0, 1) != 0;
+    fl.senoDefect = getInt("f_seno", 0, 0, 1) != 0;
+    fl.gunturDefeated = getInt("f_guntur", 0, 0, 1) != 0;
+    fl.gemaDefeated = getInt("f_gema", 0, 0, 1) != 0;
+    fl.gameCompleted = getInt("f_complete", 0, 0, 1) != 0;
+    fl.herbQuestAccepted = getInt("q_herb", 0, 0, 1) != 0;
+    fl.herbQuestDone = getInt("q_herbDone", 0, 0, 1) != 0;
+    fl.lanternQuestAccepted = getInt("q_lantern", 0, 0, 1) != 0;
+    fl.lanternQuestDone = getInt("q_lanternDone", 0, 0, 1) != 0;
+    fl.sekarQuestAccepted = getInt("q_sekar", 0, 0, 1) != 0;
+    fl.sekarQuestDone = getInt("q_sekarDone", 0, 0, 1) != 0;
+    fl.hiddenQuestDone = getInt("q_hidden", 0, 0, 1) != 0;
+    fl.gajaminaDefeated = getInt("q_gajamina", 0, 0, 1) != 0;
+
+    companions_.clear();
+    {
+        std::istringstream cs(text);
+        std::string cline;
+        while (std::getline(cs, cline)) {
+            if (!cline.empty() && cline.back() == '\r') cline.pop_back();
+            if (cline.rfind("comp ", 0) != 0) continue;
+            std::istringstream ss(cline.substr(5));
+            int id = 0, level = 1, hp = 1, recruited = 0;
+            if (ss >> id >> level >> hp >> recruited) {
+                Companion c = makeCompanion(static_cast<CompanionId>(clampInt(id, 0, 3)), level);
+                c.hp = clampInt(hp, 0, c.maxHp);
+                c.recruited = recruited != 0;
+                c.alive = c.hp > 0;
+                companions_.push_back(c);
+            }
+        }
+    }
 
     player_ = p;
-    flags_ = Flags{};
-    flags_.questAccepted = (flagBits & 1) != 0;
-    flags_.bossDefeated = (flagBits & 2) != 0;
-    flags_.sunstoneFound = (flagBits & 4) != 0;
-    flags_.gameCompleted = (flagBits & 8) != 0;
-    flags_.metElder = (flagBits & 16) != 0;
-    flags_.introSeen = (flagBits & 32) != 0;
-    int questBits = getInt("quests", 0, 0, 7);
-    flags_.herbQuestAccepted = (questBits & 1) != 0;
-    flags_.herbQuestDone = (questBits & 2) != 0;
-    if (flags_.herbQuestDone) flags_.herbQuestAccepted = true;
-    flags_.ruinsCleared = (questBits & 4) != 0;
-
+    flags_ = fl;
     map_ = newMap;
     px_ = nx;
     py_ = ny;
@@ -409,30 +513,11 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
     chestOpened_.assign(static_cast<size_t>(world_.count()), {});
     for (int i = 0; i < world_.count(); ++i)
         chestOpened_[static_cast<size_t>(i)].assign(world_.def(i).chests.size(), false);
-
     visited_.assign(static_cast<size_t>(world_.count()), false);
-    auto vit = kv.find("visited");
-    if (vit != kv.end()) {
-        std::istringstream vs(vit->second);
-        int mask = 0;
-        if (vs >> mask) {
-            for (size_t i = 0; i < visited_.size() && i < 31; ++i)
-                visited_[i] = (mask & (1 << i)) != 0;
-        }
-    }
     markVisited(map_);
 
-    auto cit = kv.find("chests");
-    if (cit != kv.end()) {
-        std::istringstream ss(cit->second);
-        int mask = 0;
-        for (int i = 0; i < world_.count() && (ss >> mask); ++i) {
-            auto& opened = chestOpened_[static_cast<size_t>(i)];
-            for (size_t k = 0; k < opened.size() && k < 31; ++k) opened[k] = (mask & (1 << k)) != 0;
-        }
-    }
-
     resetRoamingEnemies(px_, py_);
+    followers_.assign(companions_.size(), Vec2{px_, py_});
     enemyGrace_ = 2.0f;
     stepAccum_ = 0.0f;
     portalCooldown_ = 1.0f;
@@ -443,19 +528,21 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
     mapBanner_ = 3.0f;
     mapBannerText_ = world_.def(map_).name;
     updateCamera(100.0f);
-    // Upgrade a plaintext save in place so it is protected from casual editing
-    // from this load onward. A failed rewrite must not fail the load.
-    if (legacy) writeSaveText(path, text, nullptr);
+    if (legacy) writeSaveTo(path, nullptr);
     return true;
 }
 
 void Game::startDialogue(const std::string& speaker, const std::vector<std::string>& pages,
-                         std::function<void()> onClose) {
+                        std::function<void()> onClose,
+                        const std::vector<DialogueChoice>& choices) {
     dlg_.pages = pages;
+    dlg_.choices = choices;
     dlg_.speaker = speaker;
     dlg_.page = 0;
     dlg_.chars = 0.0f;
     dlg_.active = true;
+    dlg_.choosing = false;
+    dlg_.choiceIndex = 0;
     dlg_.onClose = std::move(onClose);
     state_ = GameState::Dialogue;
 }
@@ -464,8 +551,18 @@ void Game::closeDialogue() {
     dlg_.active = false;
     auto cb = dlg_.onClose;
     dlg_.onClose = nullptr;
-    state_ = GameState::Explore;
+    if (state_ == GameState::Dialogue) state_ = GameState::Explore;
     if (cb) cb();
+}
+
+void Game::applyChoice(int index) {
+    if (index < 0 || index >= static_cast<int>(dlg_.choices.size())) return;
+    const DialogueChoice& c = dlg_.choices[static_cast<size_t>(index)];
+    flags_.resonance = clampInt(flags_.resonance + c.resonanceDelta, 0, 100);
+    if (c.action) c.action();
+    dlg_.choosing = false;
+    dlg_.choices.clear();
+    closeDialogue();
 }
 
 void Game::startTransition(std::function<void()> action) {
@@ -501,6 +598,7 @@ void Game::changeMap(int target, int spawnTileX, int spawnTileY, int facing) {
     facing_ = clampInt(facing, 0, 3);
     stepAccum_ = 0.0f;
     enemyGrace_ = 1.2f;
+    followers_.assign(companions_.size(), Vec2{px_, py_});
     updateCamera(100.0f);
     mapBanner_ = 2.8f;
     mapBannerText_ = world_.def(map_).name;
@@ -620,6 +718,17 @@ void Game::updateParticles(float dt) {
                   floats_.end());
 }
 
+void Game::updateFollowers(float dt) {
+    if (followers_.empty()) return;
+    for (size_t i = 0; i < companions_.size(); ++i) {
+        if (i >= followers_.size()) followers_.push_back(Vec2{px_, py_});
+        Vec2 target = i == 0 ? Vec2{px_, py_} : followers_[i - 1];
+        float k = clampf(dt * 5.0f, 0.0f, 1.0f);
+        followers_[i].x = lerp(followers_[i].x, target.x, k);
+        followers_[i].y = lerp(followers_[i].y, target.y + static_cast<float>(i) * 2.0f, k);
+    }
+}
+
 void Game::resetRoamingEnemies(float avoidX, float avoidY) {
     enemies_.clear();
     enemies_.resize(static_cast<size_t>(world_.count()));
@@ -629,24 +738,24 @@ void Game::resetRoamingEnemies(float avoidX, float avoidY) {
 
 void Game::spawnRoamingEnemies(int map, float avoidX, float avoidY) {
     if (map < 0 || map >= world_.count()) return;
-    int wanted = map == 1 ? 7 : (map == 2 ? 6 : (map == 3 ? 5 : 0));
+    int wanted = 0;
+    if (map == 2) wanted = 8;
+    else if (map == 3) wanted = 7;
+    else if (map == 4) wanted = 6;
+    else if (map == 8) wanted = 6;
     if (wanted <= 0) return;
 
     const MapDef& md = world_.def(map);
-    struct Spot {
-        int x, y;
-    };
+    struct Spot { int x, y; };
     std::vector<Spot> pool;
     for (int ty = 0; ty < md.h; ++ty) {
         for (int tx = 0; tx < md.w; ++tx) {
-            // Monsters only live on encounter terrain, so the roads of the
-            // overworld stay safe while tall grass and cave floors stay lively.
             if (!world_.encounter(map, tx, ty)) continue;
             if (world_.blocked(map, tx, ty)) continue;
             if (world_.npcAt(map, tx, ty) || world_.chestAt(map, tx, ty) ||
-                world_.portalAt(map, tx, ty))
+                world_.portalAt(map, tx, ty) || world_.echoAt(map, tx, ty) ||
+                world_.campAt(map, tx, ty))
                 continue;
-
             bool tooClose = false;
             for (const Portal& p : md.portals) {
                 if (tx >= p.x - 3 && tx < p.x + p.w + 3 && ty >= p.y - 3 &&
@@ -655,8 +764,6 @@ void Game::spawnRoamingEnemies(int map, float avoidX, float avoidY) {
                     break;
                 }
             }
-            // Keep every arrival point clear, including portals on other maps
-            // that lead into this one.
             for (int other = 0; other < world_.count() && !tooClose; ++other) {
                 for (const Portal& p : world_.def(other).portals) {
                     if (p.targetMap != map) continue;
@@ -678,8 +785,6 @@ void Game::spawnRoamingEnemies(int map, float avoidX, float avoidY) {
                     break;
                 }
             }
-            // Only the map the player is standing on needs a clear pocket
-            // around them; the same pixel offset on another map is unrelated.
             if (!tooClose && map == map_ && avoidX >= 0.0f && avoidY >= 0.0f) {
                 float cx = static_cast<float>(tx * TILE + 8);
                 float cy = static_cast<float>(ty * TILE + 8);
@@ -708,7 +813,6 @@ void Game::spawnRoamingEnemies(int map, float avoidX, float avoidY) {
             }
         }
         if (crowded) continue;
-
         RoamingEnemy e;
         e.type = rollRoamer(map, enemyRng_);
         e.x = e.homeX = static_cast<float>(spot.x * TILE);
@@ -726,7 +830,6 @@ void Game::pickEnemyDirection(RoamingEnemy& e) {
     float hx = e.homeX - e.x;
     float hy = e.homeY - e.y;
     if (std::abs(hx) > 5.0f * TILE || std::abs(hy) > 5.0f * TILE) {
-        // Too far from home: walk back along the dominant axis.
         if (std::abs(hx) > std::abs(hy)) {
             e.dirX = hx > 0.0f ? 1.0f : -1.0f;
             e.dirY = 0.0f;
@@ -746,10 +849,7 @@ void Game::pickEnemyDirection(RoamingEnemy& e) {
 }
 
 bool Game::enemyBlocked(int map, float nx, float ny, int self) const {
-    // The centre tile must remain encounter terrain, which keeps overworld
-    // monsters inside tall grass and cave monsters on the cave floor.
     if (!world_.encounter(map, tileOfX(nx + 8.0f), tileOfY(ny + 12.0f))) return true;
-
     int tx0 = tileOfX(nx + 3.0f), tx1 = tileOfX(nx + 12.99f);
     int ty0 = tileOfY(ny + 6.0f), ty1 = tileOfY(ny + 15.99f);
     for (int ty = ty0; ty <= ty1; ++ty) {
@@ -759,14 +859,14 @@ bool Game::enemyBlocked(int map, float nx, float ny, int self) const {
             if (npc && !npcHidden(*npc)) return true;
             if (world_.chestAt(map, tx, ty)) return true;
             if (world_.portalAt(map, tx, ty)) return true;
+            if (world_.echoAt(map, tx, ty) || world_.campAt(map, tx, ty)) return true;
         }
     }
     if (map < 0 || map >= static_cast<int>(enemies_.size())) return false;
     const auto& list = enemies_[static_cast<size_t>(map)];
     for (size_t i = 0; i < list.size(); ++i) {
         if (static_cast<int>(i) == self || !list[i].active) continue;
-        if (std::abs(list[i].x - nx) < 10.0f && std::abs(list[i].y - ny) < 10.0f)
-            return true;
+        if (std::abs(list[i].x - nx) < 10.0f && std::abs(list[i].y - ny) < 10.0f) return true;
     }
     return false;
 }
@@ -779,7 +879,6 @@ void Game::updateEnemies(float dt) {
         if (!e.active) {
             e.respawnTimer -= dt;
             if (e.respawnTimer > 0.0f) continue;
-            // Never materialise on top of the player.
             if (std::abs(e.homeX - px_) < 3.0f * TILE &&
                 std::abs(e.homeY - py_) < 3.0f * TILE) {
                 e.respawnTimer = 2.0f;
@@ -794,7 +893,6 @@ void Game::updateEnemies(float dt) {
             spawnBurst(e.x + 8.0f, e.y + 8.0f, 10, 0xFFB080FFu, 22.0f);
             continue;
         }
-
         e.anim += dt;
         if (e.pauseTimer > 0.0f) {
             e.pauseTimer -= dt;
@@ -853,7 +951,6 @@ void Game::startEnemyBattle(int index) {
     if (index < 0 || index >= static_cast<int>(list.size())) return;
     RoamingEnemy& e = list[static_cast<size_t>(index)];
     if (!e.active) return;
-
     EnemyType type = e.type;
     e.active = false;
     e.respawnTimer = 18.0f + enemyRng_.unit() * 10.0f;
@@ -863,7 +960,15 @@ void Game::startEnemyBattle(int index) {
     uint64_t seed = (static_cast<uint64_t>(enemyRng_.next()) << 32) ^ enemyRng_.next();
     startTransition([this, type, seed] {
         state_ = GameState::Battle;
-        battle_.begin(player_, type, false, seed);
+        battle_.begin(player_, type, false, seed, &companions_, &flags_.resonance);
+    });
+}
+
+void Game::startBoss(EnemyType type) {
+    uint64_t seed = rng_.next();
+    startTransition([this, type, seed] {
+        state_ = GameState::Battle;
+        battle_.begin(player_, type, true, seed, &companions_, &flags_.resonance);
     });
 }
 
@@ -875,12 +980,12 @@ void Game::checkPortal() {
     int ty = tileOfY(py_ + 13.0f);
     const Portal* portal = world_.portalAt(map_, tx, ty);
     if (!portal) return;
-    if (portal->requiresSunstone && !player_.hasSunstone) {
+    if (portal->requireAct > flags_.act) {
         portalCooldown_ = 1.8f;
         playSfx(SfxId::MenuCancel);
-        startDialogue("Segel Fajar",
-                      {"Sebuah segel cahaya menutup jalan ini.",
-                       "Hanya pembawa Batu Matahari yang dapat membukanya."});
+        startDialogue("Segel Kertarajasa",
+                      {"Jalan ini disegel oleh status darurat Keadipatian.",
+                       "Selesaikan misi aktual terlebih dahulu."});
         return;
     }
     int target = portal->targetMap, sx = portal->spawnX, sy = portal->spawnY, sd = portal->spawnDir;
@@ -902,66 +1007,62 @@ void Game::openChest(const ChestSpawn& chest, int index) {
     switch (chest.item) {
         case ItemId::Gold:
             player_.gold += chest.amount;
-            msg = "Kau menemukan " + std::to_string(chest.amount) + " emas!";
+            msg = "Kau menemukan " + std::to_string(chest.amount) + " Keping Garam!";
             addFloat(cx, cy, "+" + std::to_string(chest.amount) + "G", pal::gold);
-            spawnBurst(cx, cy, 14, pal::gold, 30.0f);
             break;
         case ItemId::Potion:
             player_.potions += chest.amount;
-            msg = "Kau menemukan Ramuan x" + std::to_string(chest.amount) + "!";
-            addFloat(cx, cy, "+Ramuan", 0xFFFF8080u);
-            spawnBurst(cx, cy, 14, 0xFFFF8080u, 30.0f);
+            msg = "Kau menemukan Ramuan Pelita x" + std::to_string(chest.amount) + "!";
             break;
         case ItemId::Elixir:
             player_.elixirs += chest.amount;
-            msg = "Kau menemukan Eliksir x" + std::to_string(chest.amount) + "!";
-            addFloat(cx, cy, "+Eliksir", 0xFF80A8FFu);
-            spawnBurst(cx, cy, 14, 0xFF80A8FFu, 30.0f);
+            msg = "Kau menemukan Eliksir Sumsum x" + std::to_string(chest.amount) + "!";
             break;
-        case ItemId::IronSword:
+        case ItemId::Oil:
+            player_.oil += chest.amount;
+            msg = "Kau menemukan Minyak Sumsum x" + std::to_string(chest.amount) + "!";
+            break;
+        case ItemId::SaltCrystal:
+            player_.saltCrystal += chest.amount;
+            msg = "Kau menemukan Garam Kenangan x" + std::to_string(chest.amount) + "!";
+            break;
+        case ItemId::SoulDagger:
             if (player_.weapon < 2) {
                 player_.weapon = 2;
-                msg = "Kau menemukan Pedang Besi! Serangan meningkat.";
+                msg = "Kau menemukan Belati Penarah Jiwa!";
             } else {
-                player_.gold += 80;
-                msg = "Kau menemukan Pedang Besi, tapi sudah memakainya. Dijual +80 emas.";
+                player_.gold += 150;
+                msg = "Belati Penarah Jiwa cadangan. Dijual +150G.";
             }
-            spawnBurst(cx, cy, 14, pal::white, 30.0f);
             break;
-        case ItemId::ChainMail:
-            if (player_.armor < 2) {
-                player_.armor = 2;
-                msg = "Kau menemukan Baju Rantai! Pertahanan meningkat.";
-            } else {
-                player_.gold += 75;
-                msg = "Kau menemukan Baju Rantai, tapi sudah memakainya. Dijual +75 emas.";
-            }
-            spawnBurst(cx, cy, 14, pal::white, 30.0f);
+        case ItemId::TuningStaff:
+            msg = "Tongkat Garpu Tala! Larasati akan bergabung.";
+            if (!flags_.larasJoined) recruit(CompanionId::Larasati, 1 + flags_.act);
             break;
-        case ItemId::Sunstone:
-            player_.hasSunstone = true;
-            flags_.sunstoneFound = true;
-            msg = "Batu Matahari! Kehangatannya mengusir kegelapan.";
+        case ItemId::TirtaCore:
+            player_.hasTirtaCore = true;
+            msg = "Inti Tirta Purba! Relik air purba berdenyut hangat.";
             break;
-        case ItemId::DawnSword:
-            if (player_.weapon < 3) {
-                player_.weapon = 3;
-                msg = "Kau menemukan Pedang Fajar! Cahayanya membelah bayangan.";
-            } else {
-                player_.gold += 200;
-                msg = "Pedang Fajar cadangan. Dijual +200 emas.";
-            }
-            spawnBurst(cx, cy, 20, 0xFFFFD87A, 36.0f);
+        case ItemId::SaltNoSorrow:
+            player_.hasSaltNoSorrow = true;
+            msg = "Garam Tanpa Duka. Pengikisan Rasa tidak lagi menyakitimu.";
             break;
-        case ItemId::DawnShield:
-            if (player_.armor < 3) {
-                player_.armor = 3;
-                msg = "Kau menemukan Perisai Fajar! Pertahananmu bersinar.";
-            } else {
-                player_.gold += 200;
-                msg = "Perisai Fajar cadangan. Dijual +200 emas.";
-            }
-            spawnBurst(cx, cy, 20, 0xFFFFD87A, 36.0f);
+        case ItemId::KidungBook:
+            player_.hasKidungBook = true;
+            msg = "Kitab Kidung Pertama! Syarat True Ending terpenuhi.";
+            if (hasMemory(10)) flags_.hiddenQuestDone = true;
+            break;
+        case ItemId::CourtKey:
+            player_.hasCourtKey = true;
+            msg = "Kunci Kraton! Pintu rahasia ruang tahta terbuka.";
+            break;
+        case ItemId::AshCharm:
+            player_.hasAshCharm = true;
+            msg = "Jimat Penahan Abu!";
+            break;
+        case ItemId::ResonanceRing:
+            player_.hasResonanceRing = true;
+            msg = "Cincin Resonansi Perak!";
             break;
         default:
             msg = "Peti kosong.";
@@ -969,6 +1070,127 @@ void Game::openChest(const ChestSpawn& chest, int index) {
     }
     playSfx(chest.item == ItemId::Gold ? SfxId::Coin : SfxId::Chest);
     startDialogue("Peti Harta", {msg}, [this] { state_ = GameState::Explore; });
+    advanceActIfReady();
+}
+
+void Game::recruit(CompanionId id, int level) {
+    for (const auto& c : companions_)
+        if (c.id == id) return;
+    companions_.push_back(makeCompanion(id, level));
+    followers_.assign(companions_.size(), Vec2{px_, py_});
+    if (id == CompanionId::Bima) flags_.bimaJoined = true;
+    if (id == CompanionId::Sekar) flags_.sekarJoined = true;
+    if (id == CompanionId::Larasati) flags_.larasJoined = true;
+    if (id == CompanionId::Bagas) flags_.bagasJoined = true;
+    advanceActIfReady();
+}
+
+void Game::advanceActIfReady() {
+    if (flags_.act == 1 && flags_.bimaJoined && flags_.sekarJoined && flags_.larasJoined &&
+        hasMemory(1) && hasMemory(2)) {
+        flags_.act = 2;
+        autosave();
+        mapBanner_ = 3.0f;
+        mapBannerText_ = "Act II - Bisikan di Bawah Garam";
+        spawnBurst(px_ + 8.0f, py_ + 8.0f, 20, 0xFF9AD8E8u, 34.0f);
+    }
+}
+
+void Game::addMemory(int id) {
+    if (id < 0 || id >= 12) return;
+    flags_.memories |= 1 << id;
+}
+
+void Game::readEcho(int id) {
+    if (hasMemory(id)) {
+        startDialogue("Gema Garam", {"Gema ini sudah kau baca. Fragmen itu tersimpan di jurnal."});
+        return;
+    }
+    addMemory(id);
+    flags_.resonance = clampInt(flags_.resonance + 5, 0, 100);
+    playSfx(SfxId::Heal);
+    spawnBurst(px_ + 8.0f, py_ + 8.0f, 16, 0xFF9AD8E8u, 28.0f);
+    switch (id) {
+        case 0:
+            startDialogue("Gema Kurir", {"Tabung logam itu berat. Di dalamnya cetak biru mesin raksasa.",
+                                         "Lentera kota sedang memakan jiwa desa."});
+            break;
+        case 1:
+            startDialogue("Gema Segel", {"Segel lilin ini memakai cincin pribadi Adipati Mahardika.",
+                                         "Minyak dari krematorium dikirim ke Kraton."});
+            break;
+        case 2:
+            startDialogue("Gema Manifes", {"Manifes gudang: ribuan guci Minyak Sumsum untuk Bahtera Langit.",
+                                           "Distrik bawah tidak menerima jatah minggu ini."});
+            break;
+        case 3:
+            startDialogue("Gema Lentera", {"Lentera ini milik suami Nenek Sari. Di dalamnya pesan terakhirnya.",
+                                           "Ia tidak meninggalkan istrinya. Badai menahannya di rimba."});
+            break;
+        case 4:
+            startDialogue("Gema Karang", {"Terumbu karang purba mengalami kehausan yang sama.",
+                                          "Rimba ini dulunya dasar laut yang tersadar."});
+            break;
+        case 5:
+            startDialogue("Gema Ayah", {"Ayah Raka tidak tewas tertimbun.",
+                                        "Ia ditembak Raden Guntur saat mencoba meledakkan katup pipa."},
+                          [this] {
+                              flags_.resonance = clampInt(flags_.resonance + 10, 0, 100);
+                          });
+            break;
+        case 6:
+            startDialogue("Gema Pipa", {"Pipa penyedot mengarah ke Jantung Palung Sunyi.",
+                                        "Mereka menyedot kelembapan jiwa bumi, bukan menambang garam."});
+            break;
+        case 7:
+            startDialogue("Gema Prasasti", {"Meteorit Tahun 0 EG menyerap air samudra.",
+                                            "Entitas di dalamnya mengurung dirinya dengan garam."});
+            break;
+        case 8:
+            startDialogue("Gema Kunci Tirta", {"Empat Kunci Tirta dijaga makhluk purba.",
+                                               "Candi ini menyimpan jalan ke Jantung Palung."});
+            break;
+        case 9:
+            startDialogue("Gema Pendiri", {"Ordo Pelita awalnya menyimpan ingatan, bukan membakarnya.",
+                                           "Taman Lentera Mati menyimpan kebenaran yang dibuang."});
+            break;
+        case 10:
+            startDialogue("Gema Terlarang", {"Bunda Nirmala tahu minyak itu mempercepat pembatuan.",
+                                             "Ia memilih diam demi harapan Bahtera Langit."},
+                          [this] {
+                              flags_.hiddenQuestDone = true;
+                              if (player_.hasKidungBook) flags_.hiddenQuestDone = true;
+                          });
+            break;
+        case 11:
+            startDialogue("Gema Pertama", {"Sang Gema Pertama bukan dewa.",
+                                           "Ia parasit yang menjanjikan tanah hijau palsu."});
+            break;
+        default:
+            break;
+    }
+    advanceActIfReady();
+}
+
+void Game::restCampfire() {
+    if (player_.oil <= 0) {
+        startDialogue("Api Unggun", {"Kau tidak punya Minyak Sumsum untuk menyalakan api.",
+                                     "Beli atau cari guci minyak di peti."});
+        return;
+    }
+    --player_.oil;
+    player_.fullRestore();
+    for (auto& c : companions_) {
+        if (!c.recruited) continue;
+        c.hp = c.maxHp;
+        c.alive = true;
+    }
+    flags_.resonance = clampInt(flags_.resonance + 10, 0, 100);
+    playSfx(SfxId::Heal);
+    spawnBurst(px_ + 8.0f, py_ + 8.0f, 18, 0xFFFFB06Au, 26.0f);
+    addFloat(px_ + 8.0f, py_ - 4.0f, "PULIH + RESONANSI", 0xFFFFB06Au);
+    startDialogue("Api Unggun", {"Api hangat memulihkan tubuh dan mengingatkan Raka pada wajah-wajah",
+                                 "yang ia sayangi. Minyak -1, HP/MP penuh, resonansi +10."});
 }
 
 void Game::interact() {
@@ -980,200 +1202,392 @@ void Game::interact() {
     const NpcSpawn* npc = world_.npcAt(map_, tx, ty);
     if (npc) {
         if (npcHidden(*npc)) return;
-        switch (npc->style) {
-            case NpcStyle::Elder: elderTalk(); break;
-            case NpcStyle::Shopkeeper:
-                state_ = GameState::Shop;
-                shopIndex_ = 0;
-                shopMessage_ = "Selamat datang di Toko Rilla!";
-                shopMessageTimer_ = 3.0f;
-                break;
-            case NpcStyle::Innkeeper: innTalk(); break;
-            case NpcStyle::Guard: guardTalk(); break;
-            case NpcStyle::Warden: wardenTalk(); break;
-            case NpcStyle::Guardian: guardianTalk(); break;
-            default: flavorTalk(npc->dialogue); break;
-        }
+        talkToNpc(*npc);
         return;
     }
-
     const ChestSpawn* chest = world_.chestAt(map_, tx, ty);
     if (chest) {
         int index = static_cast<int>(chest - world_.def(map_).chests.data());
         openChest(*chest, index);
         return;
     }
-
+    const EchoSpot* echo = world_.echoAt(map_, tx, ty);
+    if (echo) {
+        readEcho(echo->id);
+        return;
+    }
+    const CampSpot* camp = world_.campAt(map_, tx, ty);
+    if (camp) {
+        restCampfire();
+        return;
+    }
     Tile t = world_.tile(map_, tx, ty);
     if (t == Tile::Sign) {
-        if (map_ == 0) {
-            startDialogue("Papan Kayu", {"\"Desa Elmwood\"", "Damai di bawah naungan lembah."});
-        } else {
-            startDialogue("Papan Kayu", {"\"Jembatan Tua\"", "Ke utara menuju Gua Bayangan. Hati-hati."});
-        }
+        if (map_ == 0) startDialogue("Papan Kayu", {"\"Desa Tambak-Abu\"", "Tanah para penambang garam."});
+        else if (map_ == 1) startDialogue("Papan Kayu", {"\"Pelabuhan Besi Kertarajasa\"", "Status darurat militer berlaku."});
+        else startDialogue("Papan Kayu", {"\"Jalan Segara Garam\"", "Berhati-hatilah terhadap kabut abu."});
     } else if (t == Tile::Door) {
         startDialogue("Pintu", {"Pintu ini terkunci dari dalam."});
     } else if (t == Tile::CaveEntrance) {
-        startDialogue("Gua Bayangan", {"Angin dingin berhembus dari dalam gua...",
-                                       "Masuklah untuk melanjutkan perjalanan."});
+        startDialogue("Mulut Gua", {"Angin dingin berhembus dari dalam...",
+                                    "Masuklah untuk melanjutkan perjalanan."});
     } else if (t == Tile::RuinEntrance) {
-        if (player_.hasSunstone) {
-            startDialogue("Reruntuhan Fajar", {"Batu Matahari bergetar di tasmu.",
-                                               "Segel kuno terbuka. Tangga menuju cahaya fajar."});
-        } else {
-            startDialogue("Reruntuhan Fajar", {"Reruntuhan tertutup segel cahaya.",
-                                               "Cahaya itu menolak siapa pun tanpa Batu Matahari."});
-        }
+        startDialogue("Gerbang Reruntuhan", {"Candi kuno setengah terkubur garam.",
+                                             "Ukiran berbisik tentang meteorit."});
     }
 }
 
-void Game::elderTalk() {
-    if (!flags_.metElder) {
-        flags_.metElder = true;
-        flags_.questAccepted = true;
-        autosave();
-        startDialogue("Tetua Ardan",
-                      {"Ah, kau pasti pemuda yang diceritakan ramalan itu.",
-                       "Batu Matahari, cahaya lembah ini, dicuri oleh Warden Bayangan.",
-                       "Tanpa relik itu, kegelapan akan menelan Elmwood.",
-                       "Pergilah ke Gua Bayangan di timur laut. Kalahkan Warden, dan bawa kembali Batu Matahari."},
-                      [this] { state_ = GameState::Explore; });
-        return;
-    }
-    if (flags_.sunstoneFound && !flags_.gameCompleted) {
-        flags_.gameCompleted = true;
-        autosave();
-        startDialogue("Tetua Ardan",
-                      {"Batu Matahari! Aku bisa merasakan kehangatannya.",
-                       "Kau telah mengusir bayangan dari Lembah Aetheria.",
-                       "Terimalah restu kami, pahlawan. Namamu akan dikenang selamanya."},
-                      [this] {
-                          state_ = GameState::Ending;
-                          endingScroll_ = 0.0f;
-                      });
-        return;
-    }
-    if (flags_.bossDefeated) {
-        startDialogue("Tetua Ardan", {"Kau membawa harapan bagi kami semua.",
-                                      "Istirahatlah, pahlawan. Desa ini aman berkatmu."});
-        return;
-    }
-    if (flags_.questAccepted) {
-        startDialogue("Tetua Ardan",
-                      {"Gua Bayangan berada di timur laut, di balik jembatan tua.",
-                       "Bawalah ramuan yang cukup, dan jangan ragu untuk berlatih.",
-                       "Semoga cahaya menyertaimu."});
-        return;
-    }
-    startDialogue("Tetua Ardan", {"Semoga harimu damai, anak muda."});
-}
-
-void Game::innTalk() {
-    if (player_.hp >= player_.maxHp && player_.mp >= player_.maxMp) {
-        startDialogue("Pemilik Penginapan", {"Kau belum lelah. Simpan emasmu untuk perjalanan."});
-        return;
-    }
-    if (player_.gold < 10) {
-        startDialogue("Pemilik Penginapan", {"Istirahat semalam 10 emas.", "Maaf, emasmu belum cukup."});
-        return;
-    }
-    player_.gold -= 10;
-    player_.fullRestore();
-    playSfx(SfxId::Heal);
-    spawnBurst(px_ + 8.0f, py_ + 8.0f, 18, 0xFF8CFFB0u, 26.0f);
-    addFloat(px_ + 8.0f, py_ - 4.0f, "PULIH!", 0xFF8CFFB0u);
-    startDialogue("Pemilik Penginapan",
-                  {"Silakan beristirahat.", "Kau terbangun dengan tubuh segar.", "-10 emas, HP & MP penuh."});
-}
-
-void Game::guardTalk() {
-    if (flags_.bossDefeated) {
-        startDialogue("Penjaga Bram", {"Kegelapan telah pergi dari lembah.",
-                                       "Desa ini berutang budi padamu, pahlawan."});
-    } else {
-        startDialogue("Penjaga Bram",
-                      {"Monster berkeliaran di Padang Aetheria, terutama di rumput tinggi.",
-                       "Jembatan tua di timur laut menuju Gua Bayangan.",
-                       "Jangan masuk tanpa persiapan."});
-    }
-}
-
-void Game::wardenTalk() {
-    if (flags_.bossDefeated) return;
-    uint64_t seed = rng_.next();
-    startDialogue("Warden Bayangan",
-                  {"Jadi... cahaya itu mengirim seorang anak manusia.",
-                   "Batu Matahari kini milikku. Kegelapan akan menelan lembah ini.",
-                   "Mari kita akhiri ini."},
-                  [this, seed] {
-                      startTransition([this, seed] {
-                          state_ = GameState::Battle;
-                          battle_.begin(player_, EnemyType::Warden, true, seed);
-                      });
-                  });
-}
-
-void Game::guardianTalk() {
-    if (flags_.ruinsCleared) return;
-    uint64_t seed = rng_.next();
-    startDialogue("Penjaga Fajar",
-                  {"Aku telah menunggu seribu tahun di bawah sinar yang padam.",
-                   "Batu Matahari di tasmu... akhirnya cahaya itu kembali.",
-                   "Tetapi aku tidak akan menyerahkannya tanpa ujian.",
-                   "Angkat senjatamu, pahlawan. Buktikan kau layak membawa fajar."},
-                  [this, seed] {
-                      startTransition([this, seed] {
-                          state_ = GameState::Battle;
-                          battle_.begin(player_, EnemyType::Guardian, true, seed);
-                      });
-                  });
-}
-
-void Game::flavorTalk(int dialogueId) {
-    switch (dialogueId) {
-        case 4:
-            startDialogue("Anak Desa",
-                          {"Monster hijau berkeliaran di rumput tinggi!",
-                           "Kalau kau menyentuhnya, pertarungan langsung dimulai."});
+void Game::talkToNpc(const NpcSpawn& npc) {
+    switch (npc.style) {
+        case NpcStyle::MbokRatih: talkMbokRatih(); break;
+        case NpcStyle::Seno: talkSeno(); break;
+        case NpcStyle::JokoKeling: state_ = GameState::Shop; shopIndex_ = 0;
+            shopMessage_ = "Selamat datang di toko Joko Keling!";
+            shopMessageTimer_ = 3.0f; break;
+        case NpcStyle::Bima: talkBima(); break;
+        case NpcStyle::Sekar: talkSekar(); break;
+        case NpcStyle::Larasati: talkLarasati(); break;
+        case NpcStyle::Bagas: talkBagas(); break;
+        case NpcStyle::Nirmala: talkNirmala(); break;
+        case NpcStyle::Kirana: talkKirana(); break;
+        case NpcStyle::Adipati: talkAdipati(); break;
+        case NpcStyle::Guntur: talkGuntur(); break;
+        case NpcStyle::Warden:
+            if (!flags_.fatherMemory) {
+                startDialogue("Arwah Gema", {"Kau datang ke kedalaman tempat ayahmu gugur.",
+                                             "Baca gema terakhirnya, lalu hadapi aku!"},
+                              [this] { startBoss(EnemyType::ArwahGema); });
+            }
             break;
-        case 5:
+        case NpcStyle::Guardian:
+            if (map_ == 4 && !flags_.gajaminaDefeated) {
+                startDialogue("Gajamina Pualam", {"Paus purba yang menyatu dengan candi ini terbangun.",
+                                                   "Empat Kunci Tirta berdentang di bawah siripnya."},
+                              [this] { startBoss(EnemyType::Gajamina); });
+            } else if (map_ == 8 && !flags_.gemaDefeated) {
+                startDialogue("Sang Gema Pertama", {"Aku menawarkan dunia tanpa duka.",
+                                                    "Kau hanya perlu menyerahkan ingatan mereka."},
+                              [this] { startBoss(EnemyType::GemaPertama); });
+            }
+            break;
+        default: talkFlavor(npc.dialogue); break;
+    }
+}
+
+void Game::talkMbokRatih() {
+    if (!flags_.courierSaved) {
+        flags_.courierSaved = true;
+        addMemory(0);
+        autosave();
+        startDialogue("Mbok Ratih",
+                      {"Kurir Kertarajasa itu membatu sambil memegang tabung logam.",
+                       "Seno dan Garda Besi mengepung desa. Pergi lewat lorong bukit timur!",
+                       "Bawa cetak biru itu ke Pelabuhan Besi Kertarajasa. Lindungi desaku."},
+                      [this] {
+                          flags_.act = 1;
+                          flags_.stage = 0;
+                          autosave();
+                          mapBanner_ = 3.0f;
+                          mapBannerText_ = "Act I - Kota Seribu Lentera";
+                      },
+                      {{"Lari sekarang; jaga tabungnya.", 5, [this] {}},
+                       {"Hadapi Seno dan tunjukkan kebenarannya.", -5, [this] {}}});
+        return;
+    }
+    startDialogue("Mbok Ratih", {"Hati-hati di kota, Raka. Lentera yang terlalu terang",
+                                 "sering menyembunyikan bayangan di bawahnya."});
+}
+
+void Game::talkSeno() {
+    if (map_ == 0 && !flags_.courierSaved) {
+        startDialogue("Seno Wiratama",
+                      {"Raka? Barang di kapal itu milik Keadipatian. Jangan buat aku menangkapmu.",
+                       "Desa kita sudah kau tinggalkan lima tahun lalu."},
+                      nullptr,
+                      {{"Lari sekarang; lindungi tabungnya.", 5,
+                        [this] { flags_.senoChoice = 1; flags_.resonance = clampInt(flags_.resonance + 5, 0, 100); }},
+                       {"Hadapi Seno dan Buktikan kau benar.", -5,
+                        [this] { flags_.senoChoice = 2; flags_.resonance = clampInt(flags_.resonance - 5, 0, 100); }}});
+        return;
+    }
+    if (map_ == 7 && flags_.act >= 4) {
+        startDialogue("Seno Wiratama", {"Aku membelot. Perintah membombardir desa kita",
+                                         "adalah hal yang tak pernah bisa kupenuhi. Pergi, Raka."},
+                      [this] { flags_.senoDefect = true; });
+        return;
+    }
+    startDialogue("Seno Wiratama", {"Kertarajasa berjalan sesuai aturanku.",
+                                    "Jangan menghalangi Garda Besi."});
+}
+
+void Game::talkJoko() {
+    startDialogue("Joko Keling", {"Relik langka, kabar dari istana, semua ada harganya.",
+                                  "Cari tahu sendiri apa yang dijual di gudang sektor empat."});
+}
+
+void Game::talkBima() {
+    if (!flags_.bimaJoined) {
+        recruit(CompanionId::Bima, 1 + flags_.act);
+        autosave();
+        startDialogue("Bima Prakasa",
+                      {"Cetak biru ini milikku. Dulu kutemukan inti pembakar untuk Bahtera Langit.",
+                       "Bahan bakarnya bukan garam biasa, Raka. Itu sari ingatan manusia.",
+                       "Aku akan bergabung dan memperbaiki kesalahanku."});
+        return;
+    }
+    startDialogue("Bima Prakasa", {"Api dan garam tidak bisa bohong.",
+                                   "Aku akan membuat pelita angin-air sebelum era ini berakhir."});
+}
+
+void Game::talkSekar() {
+    if (!flags_.sekarJoined) {
+        recruit(CompanionId::Sekar, 1 + flags_.act);
+        autosave();
+        startDialogue("Sekar Wijayanti",
+                      {"Kapal luncur Cakrawala Karat siap berlayar, Juru Gema.",
+                       "Kuhancurkan monopoli minyak Kertarajasa, lalu kita bagi rata.",
+                       "Tunggu dulu—kau tidak akan pergi sendirian, kan?"});
+        return;
+    }
+    if (flags_.act >= 2 && !flags_.sekarQuestAccepted) {
+        flags_.sekarQuestAccepted = true;
+        startDialogue("Sekar Wijayanti",
+                      {"Gubernur Kartiko, pengkhianat yang menjual ayahku, kini menjaga",
+                       "penjara tambang utara. Bawa aku ke sana, dan biarkan kutuntaskan."});
+        return;
+    }
+    if (flags_.sekarQuestAccepted && !flags_.sekarQuestDone) {
+        startDialogue("Sekar Wijayanti",
+                      {"Kartiko mengakui keluarganya disandera Raden Guntur.",
+                       "Kau ingin mengeksekusinya atau menyerahkannya ke pengadilan rakyat?"},
+                       nullptr,
+                       {{"Biarkan hidup untuk bersaksi.", 5,
+                         [this] {
+                             flags_.sekarQuestDone = true;
+                             flags_.sekarChoice = 1;
+                             for (auto& c : companions_)
+                                 if (c.id == CompanionId::Sekar) c.weapon = 3;
+                         }},
+                        {"Eksekusi di tempat.", -10,
+                         [this] {
+                             flags_.sekarQuestDone = true;
+                             flags_.sekarChoice = 2;
+                             for (auto& c : companions_)
+                                 if (c.id == CompanionId::Sekar) c.weapon = 3;
+                         }}});
+        return;
+    }
+    startDialogue("Sekar Wijayanti", {"Angin garam di buritanku. Kita berlayar saat kau siap.",
+                                      "Revolusi itu membutuhkan pembangunan, bukan hanya balas dendam."});
+}
+
+void Game::talkLarasati() {
+    if (!flags_.larasJoined) {
+        recruit(CompanionId::Larasati, 1 + flags_.act);
+        autosave();
+        startDialogue("Larasati",
+                      {"Bunda Nirmala mengirim minyak ke Kraton, tapi distrik bawah kehilangan cahaya.",
+                       "Aku mendengar patung-patung pualam berbisik. Mereka belum mati.",
+                       "Tolong tunjukkan bahwa masih ada jalan lain."});
+        return;
+    }
+    startDialogue("Larasati", {"Jika resonansimu menurun, istirahatlah di api unggun.",
+                               "Aku akan menyanyikan ingatanmu kembali."});
+}
+
+void Game::talkBagas() {
+    if (!flags_.bagasJoined) {
+        recruit(CompanionId::Bagas, 1 + flags_.act);
+        autosave();
+        startDialogue("Kakek Bagas",
+                      {"Candi ini menyimpan prasasti meteorit, Bocah Lentera.",
+                       "Wabah Pualam bukan penyakit. Ini kehausan energi jiwa bumi.",
+                       "Aku akan memetakan jalan menuju Sumur Ratapan."});
+        return;
+    }
+    startDialogue("Kakek Bagas", {"Sejarah sejati sering dikubur oleh orang yang mengaku mensucikannya.",
+                                  "Baca prasasti, dan jangan percaya mantra kosong."});
+}
+
+void Game::talkNirmala() {
+    if (flags_.act < 3) {
+        startDialogue("Bunda Nirmala", {"Pelita Putih menyimpan ingatan sampai samudra pulih.",
+                                        "Pergi, anak kecil. Jangan mengganggu pekerjaan suci ini."});
+        return;
+    }
+    if (!flags_.nirmalaTruth) {
+        flags_.nirmalaTruth = true;
+        autosave();
+        startDialogue("Bunda Nirmala",
+                      {"Catatan penyulingan ini... setiap guci minyak mempercepat pembatuan desa.",
+                       "Mahardika bilang minyak itu menyembuhkan wabah. Dia bohong.",
+                       "Taman Lentera Mati di balik air terjun pasir menyimpan sisa abu jiwa."},
+                      [this] {
+                          flags_.resonance = clampInt(flags_.resonance + 5, 0, 100);
+                      });
+        return;
+    }
+    startDialogue("Bunda Nirmala", {"Aku akan mereformasi Ordo Pelita.",
+                                    "Jangan biarkan Bahtera Langit menyedot jiwa yang tersisa."});
+}
+
+void Game::talkKirana() {
+    if (flags_.act < 3) {
+        startDialogue("Kirana Surya", {"Kursi rodaku tidak bisa membawaku keluar tembok.",
+                                      "Tolong hentikan penderitaan rakyat di distrik bawah."});
+        return;
+    }
+    if (!flags_.kiranaHelped) {
+        flags_.kiranaHelped = true;
+        player_.hasCourtKey = true;
+        autosave();
+        startDialogue("Kirana Surya",
+                      {"Ayahku membangun Bahtera Langit demi menyelamatkanku.",
+                       "Tapi kesembuhanku dibayar dengan ingatan rakyat jelata.",
+                       "Ambil kunci Kraton ini. Berhentikan mesin itu, Raka."});
+        return;
+    }
+    startDialogue("Kirana Surya", {"Aku tidak ingin sembuh dengan harga seperti itu.",
+                                   "Biarkan aku memimpin republik baru kelak."});
+}
+
+void Game::talkAdipati() {
+    if (flags_.act < 3) {
+        startDialogue("Adipati Mahardika", {"Lembah ini butuh keteraturan, Juru Gema.",
+                                            "Pemberontakan hanya membawa abu."});
+        return;
+    }
+    startDialogue("Adipati Mahardika",
+                  {"Kau menyebutku monster karena mengorbankan seribu nyawa.",
+                   "Lalu sanggupkah kalian menanggung matinya seluruh peradaban?!",
+                   "Bahtera Langit adalah satu-satunya sekoci sebelum bumi ini mati."},
+                  [this] { startBoss(EnemyType::Adipati); });
+}
+
+void Game::talkGuntur() {
+    if (map_ == 7 && flags_.act < 4) {
+        startDialogue("Raden Guntur",
+                      {"Tanah hijau di atas awan itu nyata, Yang Mulia.",
+                       "Suara di dasar palung menjanjikannya. Bahtera Langit adalah kuncinya.",
+                       "Aku hanya mempercepat apa yang tak terhindarkan."},
+                      [this] {
+                          flags_.act = 4;
+                          autosave();
+                          mapBanner_ = 3.0f;
+                          mapBannerText_ = "Act IV - Requiem Segara Garam";
+                      });
+        return;
+    }
+    if (!flags_.gunturDefeated) {
+        startDialogue("Raden Guntur",
+                      {"Mesin inti sudah menyatu denganku. Aku akan menjadi manusia pertama",
+                       "yang menembus langit, atau menghancurkan segelnya dari dalam."},
+                      [this] { startBoss(EnemyType::Guntur); });
+        return;
+    }
+    startDialogue("Raden Guntur", {"Semua hitunganku... salah. Palung itu tidak pernah berterima kasih."});
+}
+
+void Game::talkFlavor(int dialogueId) {
+    switch (dialogueId) {
+        case 6:
+            if (flags_.lanternQuestDone) {
+                startDialogue("Nenek Sari", {"Lentera suamiku kembali. Terima kasih, Raka.",
+                                             "Jimat Penahan Abu ini untukmu."});
+            } else if (!flags_.lanternQuestAccepted) {
+                flags_.lanternQuestAccepted = true;
+                startDialogue("Nenek Sari", {"Suamiku hilang di Rimba Karang-Kelabu sepuluh tahun lalu.",
+                                             "Bawa pulang lentera terakhirnya, dan dengarkan pesannya.",
+                                             "Aku ingin berpisah dengan benar sebelum aku membatu."});
+            } else if (hasMemory(3)) {
+                flags_.lanternQuestDone = true;
+                player_.hasAshCharm = true;
+                flags_.resonance = clampInt(flags_.resonance + 10, 0, 100);
+                autosave();
+                startDialogue("Nenek Sari", {"Lentera ini... suaranya masih hangat.",
+                                             "Terima kasih. Terimalah Jimat Penahan Abu ini.",
+                                             "Resonansimu sedikit pulih."});
+            } else {
+                startDialogue("Nenek Sari", {"Lentera itu berada di Rimba Karang-Kelabu.",
+                                             "Ikuti peta kasar ini ke pohon karang kembar."});
+            }
+            break;
+        case 2:
             if (flags_.herbQuestDone) {
-                startDialogue("Petani Ruslan",
-                              {"Ramuanmu menyelamatkan panenku. Terima kasih, pahlawan!",
-                               "Lembah ini sungguh beruntung memilikimu."});
+                startDialogue("Petani", {"Ramuanmu menyelamatkan bibit musim ini. Terima kasih!"});
             } else if (!flags_.herbQuestAccepted) {
                 flags_.herbQuestAccepted = true;
-                startDialogue("Petani Ruslan",
-                              {"Panen tahun ini buruk. Tanah terasa dingin sejak Warden datang.",
-                               "Aku butuh 3 Ramuan untuk merawat bibit-bibit yang tersisa.",
-                               "Bawa ke sini, dan kubayar 120 emas plus satu Eliksir."});
+                startDialogue("Petani", {"Tanah tambak semakin dingin. Bawakan 3 Ramuan Pelita,",
+                                         "dan kubayar 120 Keping Garam plus Eliksir Sumsum."});
             } else if (player_.potions >= 3) {
                 player_.potions -= 3;
                 player_.gold += 120;
                 player_.elixirs = std::min(99, player_.elixirs + 1);
                 flags_.herbQuestDone = true;
                 autosave();
-                playSfx(SfxId::LevelUp);
-                spawnBurst(px_ + 8.0f, py_ + 8.0f, 18, pal::gold, 30.0f);
-                addFloat(px_ + 8.0f, py_ - 4.0f, "+120G", pal::gold);
-                startDialogue("Petani Ruslan",
-                              {"Ketiga Ramuan ini akan menyelamatkan musim panen!",
-                               "Terimalah 120 emas dan sebuah Eliksir. Kau teman sejati.",
-                               "Misi sampingan selesai: Ramuan untuk Ruslan."});
+                startDialogue("Petani", {"Musim panen ini masih bisa diselamatkan!",
+                                         "Terimalah 120 Keping Garam dan sebuah Eliksir."});
             } else {
-                std::string progress =
-                    "Ramuan terkumpul: " + std::to_string(player_.potions) + "/3.";
-                startDialogue("Petani Ruslan",
-                              {"Bibit-bibitku masih lemah. Aku menunggu Ramuanmu.",
-                               progress, "Toko Rilla menjual Ramuan bila persediaanmu habis."});
+                startDialogue("Petani", {"Bibit-bibit masih lemah. Ramuan: " +
+                                             std::to_string(player_.potions) + "/3."});
             }
             break;
-        case 8:
-            startDialogue("Warga Desa", {"Toko Rilla buka tiap hari.",
-                                         "Ramuan menyembuhkan luka, Eliksir memulihkan sihir."});
+        case 3:
+            startDialogue("Anak Desa", {"Kabarnya Kapten Sekar akan menyerbu gudang minyak.",
+                                        "Kalau kota gelap, siapa yang akan melindungi desa?"});
+            break;
+        case 15:
+            startDialogue("Garda Besi", {"Distrik bawah dalam status darurat.",
+                                         "Jangan minta soal minyak. Semua untuk Bahtera Langit."});
+            break;
+        case 20:
+            startDialogue("Pengintai", {"Konvoi garam merah lewat di jalur tengah setiap beberapa hari.",
+                                        "Cegat dan bagi muatannya, atau biarkan desa kita membatu."});
+            break;
+        case 21:
+            startDialogue("Pertapa Sunyi", {"Pembatuan bukan kutukan. Ia adalah evolusi.",
+                                            "Bumi ingin mengingat kita dengan cara lain."});
+            break;
+        case 40:
+            startDialogue("Kakek Bagas", {"Candi ini miring karena meteorit di bawahnya.",
+                                          "Baca prasastinya sebelum memutuskan apa pun."});
+            break;
+        case 50:
+            startDialogue("Bunda Nirmala", {"Pelita menyimpan nama orang yang telah pergi.",
+                                            "Jangan membakarnya demi kenyamanan sesaat."});
+            break;
+        case 51:
+            startDialogue("Pelarian Ordo", {"Taman Lentera Mati di balik air terjun pasir.",
+                                            "Tiga nisan tanpa nama menunggu dinyalakan."});
+            break;
+        case 60:
+            startDialogue("Pelarian Taman", {"Jurnal pendiri menunggu di ruang arsip.",
+                                             "Ordo Pelita dulu menyimpan ingatan, bukan membakarnya."});
+            break;
+        case 70:
+            startDialogue("Kirana Surya", {"Kunci Kraton ada di tanganku. Pintu ruang tahta menunggu."});
+            break;
+        case 71:
+            startDialogue("Adipati Mahardika", {"Lengan kananku sudah pualam. Lihatlah harganya."});
+            break;
+        case 72:
+            startDialogue("Raden Guntur", {"Kau tidak akan mengizinkan manusia tetap menjadi budak garam."});
+            break;
+        case 73:
+            startDialogue("Seno Wiratama", {"Aku membelot. Jaga keamanan kota saat kau pergi."});
+            break;
+        case 74:
+            startDialogue("Garda Kraton", {"Ruang tahta hanya untuk pemilik Kunci Kraton."});
+            break;
+        case 80:
+            startDialogue("Raden Guntur", {"Palung akan menelanmu, Juru Gema.",
+                                           "Aku sudah melihat akhir yang benar."});
+            break;
+        case 81:
+            startDialogue("Sang Gema Pertama", {"Serahkan ingatan mereka. Dunia tanpa duka menantimu."});
             break;
         default:
-            startDialogue("Warga Desa", {"Semoga harimu menyenangkan."});
+            startDialogue("Warga", {"Semoga lenteramu tidak padam, Juru Gema."});
             break;
     }
 }
@@ -1196,21 +1610,17 @@ void Game::closeMenu() {
 
 void Game::useFieldItem(bool elixir) {
     if (elixir) {
-        if (player_.elixirs <= 0) {
-            menuMessage_ = "Kau tidak punya Eliksir.";
-        } else if (player_.mp >= player_.maxMp) {
-            menuMessage_ = "MP sudah penuh.";
-        } else {
+        if (player_.elixirs <= 0) menuMessage_ = "Kau tidak punya Eliksir Sumsum.";
+        else if (player_.mp >= player_.maxMp) menuMessage_ = "MP sudah penuh.";
+        else {
             player_.useElixir();
             menuMessage_ = "Eliksir digunakan. MP pulih.";
             playSfx(SfxId::Potion);
         }
     } else {
-        if (player_.potions <= 0) {
-            menuMessage_ = "Kau tidak punya Ramuan.";
-        } else if (player_.hp >= player_.maxHp) {
-            menuMessage_ = "HP sudah penuh.";
-        } else {
+        if (player_.potions <= 0) menuMessage_ = "Kau tidak punya Ramuan Pelita.";
+        else if (player_.hp >= player_.maxHp) menuMessage_ = "HP sudah penuh.";
+        else {
             player_.usePotion();
             menuMessage_ = "Ramuan digunakan. HP pulih.";
             playSfx(SfxId::Potion);
@@ -1245,9 +1655,6 @@ void Game::saveFromMenu(int slot) {
 void Game::updateTitle(float dt, const InputState& in) {
     titleTime_ += dt;
     titleMsgTimer_ = std::max(0.0f, titleMsgTimer_ - dt);
-
-    // The worker thread reports completion, not the menu, so poll it every
-    // frame even when the player is only watching the progress line.
     if (updater_ && titleUpdateActive_ && !updater_->running()) {
         titleUpdateActive_ = false;
         if (updater_->success()) {
@@ -1260,27 +1667,15 @@ void Game::updateTitle(float dt, const InputState& in) {
             titleMsgTimer_ = 4.0f;
         }
     }
-
-    // Keep the menu still while git and make are working so the player cannot
-    // leave the title screen in the middle of an update.
     if (titleUpdateActive_ && updater_ && updater_->running()) return;
-
     menuFeedback(in);
 
     if (titlePage_ == TitlePage::Load) {
         if (in.hit(Key::Up)) titleSlotIndex_ = (titleSlotIndex_ + 4) % 5;
         if (in.hit(Key::Down)) titleSlotIndex_ = (titleSlotIndex_ + 1) % 5;
-        if (in.hit(Key::Cancel)) {
-            titlePage_ = TitlePage::Main;
-            titleIndex_ = 1;
-            return;
-        }
+        if (in.hit(Key::Cancel)) { titlePage_ = TitlePage::Main; titleIndex_ = 1; return; }
         if (!in.hit(Key::Confirm)) return;
-        if (titleSlotIndex_ == 4) {
-            titlePage_ = TitlePage::Main;
-            titleIndex_ = 1;
-            return;
-        }
+        if (titleSlotIndex_ == 4) { titlePage_ = TitlePage::Main; titleIndex_ = 1; return; }
         const int slots[4] = {-1, 0, 1, 2};
         int slot = slots[titleSlotIndex_];
         std::string err;
@@ -1293,35 +1688,20 @@ void Game::updateTitle(float dt, const InputState& in) {
         }
         return;
     }
-
     if (titlePage_ == TitlePage::ConfirmNew) {
         if (in.hit(Key::Up) || in.hit(Key::Down)) titleConfirmIndex_ = 1 - titleConfirmIndex_;
-        if (in.hit(Key::Cancel)) {
-            titlePage_ = TitlePage::Main;
-            titleIndex_ = 0;
-            return;
-        }
+        if (in.hit(Key::Cancel)) { titlePage_ = TitlePage::Main; titleIndex_ = 0; return; }
         if (!in.hit(Key::Confirm)) return;
-        if (titleConfirmIndex_ == 0) {
-            newGame();
-        } else {
-            titlePage_ = TitlePage::Main;
-            titleIndex_ = 0;
-        }
+        if (titleConfirmIndex_ == 0) newGame();
+        else { titlePage_ = TitlePage::Main; titleIndex_ = 0; }
         return;
     }
-
     if (in.hit(Key::Up)) titleIndex_ = (titleIndex_ + 3) % 4;
     if (in.hit(Key::Down)) titleIndex_ = (titleIndex_ + 1) % 4;
     if (!in.hit(Key::Confirm)) return;
-
     if (titleIndex_ == 0) {
-        if (anySaveExists()) {
-            titlePage_ = TitlePage::ConfirmNew;
-            titleConfirmIndex_ = 1;
-        } else {
-            newGame();
-        }
+        if (anySaveExists()) { titlePage_ = TitlePage::ConfirmNew; titleConfirmIndex_ = 1; }
+        else newGame();
     } else if (titleIndex_ == 1) {
         if (!anySaveExists()) {
             titleMsg_ = "Belum ada simpanan. Mulai permainan baru dulu.";
@@ -1360,10 +1740,7 @@ void Game::updateExplore(float dt, const InputState& in) {
     flash_ = std::max(0.0f, flash_ - dt);
     shake_ = std::max(0.0f, shake_ - dt);
 
-    if (in.hit(Key::Cancel) || in.hit(Key::Menu)) {
-        openMenu();
-        return;
-    }
+    if (in.hit(Key::Cancel) || in.hit(Key::Menu)) { openMenu(); return; }
     if (in.hit(Key::Confirm) && interactCooldown_ <= 0.0f) {
         interactCooldown_ = 0.18f;
         interact();
@@ -1375,10 +1752,8 @@ void Game::updateExplore(float dt, const InputState& in) {
     if (in.down(Key::Right)) vx += 1.0f;
     if (in.down(Key::Up)) vy -= 1.0f;
     if (in.down(Key::Down)) vy += 1.0f;
-    bool wasMoving = moving_;
     moving_ = (vx != 0.0f || vy != 0.0f);
     bool running = in.down(Key::Run);
-
     if (moving_) {
         if (vx < 0) facing_ = 2;
         else if (vx > 0) facing_ = 3;
@@ -1408,10 +1783,10 @@ void Game::updateExplore(float dt, const InputState& in) {
         animPhase_ = 0.0f;
         dustTimer_ = 0.0f;
     }
-    (void)wasMoving;
 
     clampPlayerToMap();
     updateCamera(dt);
+    updateFollowers(dt);
     if (transition_) return;
     checkPortal();
     if (transition_) return;
@@ -1420,10 +1795,21 @@ void Game::updateExplore(float dt, const InputState& in) {
 }
 
 void Game::updateDialogue(float dt, const InputState& in) {
-    if (!dlg_.active || dlg_.pages.empty()) {
-        closeDialogue();
+    if (!dlg_.active) { closeDialogue(); return; }
+    if (dlg_.choosing) {
+        if (in.hit(Key::Up)) {
+            dlg_.choiceIndex = (dlg_.choiceIndex + static_cast<int>(dlg_.choices.size()) - 1) %
+                               static_cast<int>(dlg_.choices.size());
+            playSfx(SfxId::MenuMove);
+        }
+        if (in.hit(Key::Down)) {
+            dlg_.choiceIndex = (dlg_.choiceIndex + 1) % static_cast<int>(dlg_.choices.size());
+            playSfx(SfxId::MenuMove);
+        }
+        if (in.hit(Key::Confirm)) applyChoice(dlg_.choiceIndex);
         return;
     }
+    if (dlg_.pages.empty()) { closeDialogue(); return; }
     const std::string& page = dlg_.pages[static_cast<size_t>(dlg_.page)];
     int len = static_cast<int>(page.size());
     if (static_cast<int>(dlg_.chars) < len) dlg_.chars += dt * 48.0f;
@@ -1436,46 +1822,65 @@ void Game::updateDialogue(float dt, const InputState& in) {
     ++dlg_.page;
     dlg_.chars = 0.0f;
     playSfx(SfxId::MenuMove);
-    if (dlg_.page >= static_cast<int>(dlg_.pages.size())) closeDialogue();
+    if (dlg_.page >= static_cast<int>(dlg_.pages.size())) {
+        if (!dlg_.choices.empty()) {
+            dlg_.choosing = true;
+            dlg_.choiceIndex = 0;
+        } else {
+            closeDialogue();
+        }
+    }
 }
 
 void Game::updateBattle(float dt, const InputState& in) {
-    battle_.update(dt, in, player_);
+    battle_.update(dt, in, player_, companions_);
     if (!battle_.done()) return;
 
     if (battle_.victory()) {
-        if (battle_.isBoss() && battle_.enemyType() == EnemyType::Warden &&
-            !flags_.bossDefeated) {
-            flags_.bossDefeated = true;
-            flags_.sunstoneFound = true;
-            player_.hasSunstone = true;
-            autosave();
-            state_ = GameState::Dialogue;
-            startDialogue("Warden Bayangan",
-                          {"Kegelapan... menarikku kembali...",
-                           "Batu Matahari... bebas...",
-                           "Bawa relik itu ke Tetua Elmwood. Selamatkan lembah ini."},
-                          [this] {
-                              state_ = GameState::Explore;
-                              mapBanner_ = 3.0f;
-                              mapBannerText_ = "Batu Matahari ditemukan!";
-                              spawnBurst(px_ + 8.0f, py_ + 8.0f, 26, pal::gold, 40.0f);
-                          });
-        } else if (battle_.isBoss() && battle_.enemyType() == EnemyType::Guardian &&
-                   !flags_.ruinsCleared) {
-            flags_.ruinsCleared = true;
-            autosave();
-            state_ = GameState::Dialogue;
-            startDialogue("Penjaga Fajar",
-                          {"Kau... membawa cahaya yang sesungguhnya.",
-                           "Aku telah lama terjaga tanpa tujuan. Kini tugasku selesai.",
-                           "Ambil perbekalan di reruntuhan ini. Lembah Aetheria aman."},
-                          [this] {
-                              state_ = GameState::Explore;
-                              mapBanner_ = 3.0f;
-                              mapBannerText_ = "Reruntuhan Fajar ditaklukkan!";
-                              spawnBurst(px_ + 8.0f, py_ + 8.0f, 26, 0xFFFFD87A, 40.0f);
-                          });
+        EnemyType type = battle_.enemyType();
+        bool boss = battle_.isBoss();
+        if (boss) {
+            if (type == EnemyType::ArwahGema && !flags_.fatherMemory) {
+                flags_.fatherMemory = true;
+                addMemory(5);
+                flags_.act = 3;
+                autosave();
+                state_ = GameState::Dialogue;
+                startDialogue("Arwah Gema", {"Kau telah membaca gema ayahmu.",
+                                             "Pipa penyedot harus dihentikan. Kembali ke Kertarajasa."},
+                              [this] { state_ = GameState::Explore; });
+            } else if (type == EnemyType::Gajamina && !flags_.gajaminaDefeated) {
+                flags_.gajaminaDefeated = true;
+                player_.hasTirtaCore = true;
+                autosave();
+                state_ = GameState::Dialogue;
+                startDialogue("Gajamina Pualam", {"Paus purba itu akhirnya beristirahat.",
+                                                   "Inti Tirta Purba kini ada di tanganmu."},
+                              [this] { state_ = GameState::Explore; });
+            } else if (type == EnemyType::Adipati && !flags_.gemaDefeated) {
+                flags_.act = 4;
+                autosave();
+                state_ = GameState::Dialogue;
+                startDialogue("Adipati Mahardika", {"Guntur mengkhianatiku dan mempercepat penyedotan.",
+                                                    "Kejar dia ke Jantung Palung Sunyi. Biar aku yang menahannya."},
+                              [this] {
+                                  state_ = GameState::Explore;
+                                  mapBanner_ = 3.0f;
+                                  mapBannerText_ = "Act IV - Requiem Segara Garam";
+                              });
+            } else if (type == EnemyType::Guntur && !flags_.gunturDefeated) {
+                flags_.gunturDefeated = true;
+                autosave();
+                state_ = GameState::Dialogue;
+                startDialogue("Raden Guntur", {"Mesin... berhenti. Tapi palung masih lapar.",
+                                               "Sang Gema Pertama menantimu di jantungnya."},
+                              [this] { state_ = GameState::Explore; });
+            } else if (type == EnemyType::GemaPertama && !flags_.gemaDefeated) {
+                flags_.gemaDefeated = true;
+                finishGame();
+            } else {
+                state_ = GameState::Explore;
+            }
         } else {
             state_ = GameState::Explore;
         }
@@ -1485,8 +1890,61 @@ void Game::updateBattle(float dt, const InputState& in) {
         state_ = GameState::GameOver;
         gameOverIndex_ = 0;
     }
+    for (auto& c : companions_)
+        if (c.recruited && c.hp <= 0) {
+            c.hp = std::max(1, c.maxHp / 4);
+            c.alive = true;
+        }
     flash_ = 0.0f;
     shake_ = 0.0f;
+}
+
+void Game::finishGame() {
+    bool trueReady = flags_.resonance >= 70 && flags_.hiddenQuestDone &&
+                     flags_.bimaJoined && flags_.sekarJoined && flags_.larasJoined &&
+                     flags_.bagasJoined && memoryCount() >= 10;
+    bool secretReady = trueReady && flags_.gajaminaDefeated && memoryCount() >= 12 &&
+                       player_.hasTirtaCore;
+    std::vector<DialogueChoice> choices;
+    if (secretReady) {
+        choices.push_back({"Gunakan Inti Tirta Purba untuk menetralkan meteorit.", 0, [this] {
+                               flags_.endingId = 4;
+                               flags_.gameCompleted = true;
+                               state_ = GameState::Ending;
+                               endingScroll_ = 0.0f;
+                               autosave();
+                           }});
+    }
+    if (trueReady) {
+        choices.push_back({"Bagikan beban Jangkar Gema bersama seluruh party.", 10, [this] {
+                               flags_.endingId = 1;
+                               flags_.gameCompleted = true;
+                               state_ = GameState::Ending;
+                               endingScroll_ = 0.0f;
+                               autosave();
+                           }});
+    }
+    if (flags_.resonance >= 40) {
+        choices.push_back({"Biarkan Adipati Mahardika menebus dosanya.", 5, [this] {
+                               flags_.endingId = 2;
+                               flags_.gameCompleted = true;
+                               state_ = GameState::Ending;
+                               endingScroll_ = 0.0f;
+                               autosave();
+                           }});
+    }
+    choices.push_back({"Ikuti bisikan Sang Gema Pertama.", -20, [this] {
+                           flags_.endingId = 3;
+                           flags_.gameCompleted = true;
+                           state_ = GameState::Ending;
+                           endingScroll_ = 0.0f;
+                           autosave();
+                       }});
+    startDialogue("Jantung Palung Sunyi",
+                  {"Retakan di dasar palung menyedot seluruh energi jiwa Nusakalpa.",
+                   "Seseorang harus menjadi Jangkar Gema, atau dunia ini akan dikuasai ilusi.",
+                   "Pilihanmu menentukan akhir era garam."},
+                  nullptr, choices);
 }
 
 void Game::updateMenu(float dt, const InputState& in) {
@@ -1495,70 +1953,44 @@ void Game::updateMenu(float dt, const InputState& in) {
     if (menuPage_ == 0) {
         if (in.hit(Key::Up)) menuIndex_ = (menuIndex_ + 5) % 6;
         if (in.hit(Key::Down)) menuIndex_ = (menuIndex_ + 1) % 6;
-        if (in.hit(Key::Cancel)) {
-            closeMenu();
-            return;
-        }
+        if (in.hit(Key::Cancel)) { closeMenu(); return; }
         if (in.hit(Key::Confirm)) {
-            if (menuIndex_ == 0) {
-                menuPage_ = 1;
-                menuIndex_ = 0;
-            } else if (menuIndex_ == 1) {
-                menuPage_ = 2;
-                menuIndex_ = 0;
-            } else if (menuIndex_ == 2) {
-                menuPage_ = 3;
-                menuIndex_ = 0;
-            } else if (menuIndex_ == 3) {
-                menuPage_ = 4;
-                saveConfirmSlot_ = -1;
+            if (menuIndex_ == 0) { menuPage_ = 1; menuIndex_ = 0; }
+            else if (menuIndex_ == 1) { menuPage_ = 2; menuIndex_ = 0; }
+            else if (menuIndex_ == 2) { menuPage_ = 3; menuIndex_ = 0; }
+            else if (menuIndex_ == 3) {
+                menuPage_ = 4; saveConfirmSlot_ = -1;
                 menuIndex_ = clampInt(saveSlot_ + 1, 1, 3);
-            } else if (menuIndex_ == 4) {
-                menuPage_ = 5;
-                menuIndex_ = 0;
-            } else {
-                closeMenu();
-            }
+            } else if (menuIndex_ == 4) { menuPage_ = 5; menuIndex_ = 0; }
+            else closeMenu();
         }
     } else if (menuPage_ == 1) {
-        if (in.hit(Key::Up) || in.hit(Key::Down)) menuIndex_ = (menuIndex_ + 1) % 2;
-        if (in.hit(Key::Cancel)) {
-            menuPage_ = 0;
-            menuIndex_ = 0;
-            return;
-        }
-        if (in.hit(Key::Confirm)) useFieldItem(menuIndex_ == 1);
-    } else if (menuPage_ == 2) {
-        if (in.hit(Key::Cancel) || in.hit(Key::Confirm)) {
-            menuPage_ = 0;
-            menuIndex_ = 1;
-        }
-    } else if (menuPage_ == 3) {
-        if (in.hit(Key::Cancel) || in.hit(Key::Confirm)) {
-            menuPage_ = 0;
-            menuIndex_ = 2;
-        }
-    } else if (menuPage_ == 4) {
-        if (in.hit(Key::Up)) {
-            menuIndex_ = (menuIndex_ + 4) % 5;
-            saveConfirmSlot_ = -1;
-        }
-        if (in.hit(Key::Down)) {
-            menuIndex_ = (menuIndex_ + 1) % 5;
-            saveConfirmSlot_ = -1;
-        }
-        if (in.hit(Key::Cancel)) {
-            menuPage_ = 0;
-            menuIndex_ = 3;
-            saveConfirmSlot_ = -1;
-            return;
-        }
+        if (in.hit(Key::Up) || in.hit(Key::Down)) menuIndex_ = (menuIndex_ + 3) % 4;
+        if (in.hit(Key::Cancel)) { menuPage_ = 0; menuIndex_ = 0; return; }
         if (in.hit(Key::Confirm)) {
-            if (menuIndex_ == 4) {
-                menuPage_ = 0;
-                menuIndex_ = 3;
-                saveConfirmSlot_ = -1;
-            } else if (menuIndex_ == 0) {
+            if (menuIndex_ < 2) {
+                useFieldItem(menuIndex_ == 1);
+            } else if (menuIndex_ == 2) {
+                menuMessage_ = "Minyak Sumsum dipakai di api unggun.";
+                menuMessageTimer_ = 2.4f;
+                playSfx(SfxId::MenuCancel);
+            } else {
+                menuMessage_ = "Garam Kenangan untuk pengrajin.";
+                menuMessageTimer_ = 2.4f;
+                playSfx(SfxId::MenuCancel);
+            }
+        }
+    } else if (menuPage_ == 2) {
+        if (in.hit(Key::Cancel) || in.hit(Key::Confirm)) { menuPage_ = 0; menuIndex_ = 1; }
+    } else if (menuPage_ == 3) {
+        if (in.hit(Key::Cancel) || in.hit(Key::Confirm)) { menuPage_ = 0; menuIndex_ = 2; }
+    } else if (menuPage_ == 4) {
+        if (in.hit(Key::Up)) { menuIndex_ = (menuIndex_ + 4) % 5; saveConfirmSlot_ = -1; }
+        if (in.hit(Key::Down)) { menuIndex_ = (menuIndex_ + 1) % 5; saveConfirmSlot_ = -1; }
+        if (in.hit(Key::Cancel)) { menuPage_ = 0; menuIndex_ = 3; saveConfirmSlot_ = -1; return; }
+        if (in.hit(Key::Confirm)) {
+            if (menuIndex_ == 4) { menuPage_ = 0; menuIndex_ = 3; saveConfirmSlot_ = -1; }
+            else if (menuIndex_ == 0) {
                 menuMessage_ = "Autosave ditulis otomatis di titik cerita.";
                 menuMessageTimer_ = 3.0f;
                 playSfx(SfxId::MenuCancel);
@@ -1573,30 +2005,16 @@ void Game::updateMenu(float dt, const InputState& in) {
             if (in.hit(Key::Down)) menuIndex_ = (menuIndex_ + 1) % 4;
             if (in.hit(Key::Left) || in.hit(Key::Right)) {
                 float delta = in.hit(Key::Left) ? -0.1f : 0.1f;
-                if (menuIndex_ == 0) {
-                    audio_->setMusicVolume(audio_->musicVolume() + delta);
-                    changed = true;
-                } else if (menuIndex_ == 1) {
-                    audio_->setSfxVolume(audio_->sfxVolume() + delta);
-                    changed = true;
-                }
+                if (menuIndex_ == 0) { audio_->setMusicVolume(audio_->musicVolume() + delta); changed = true; }
+                else if (menuIndex_ == 1) { audio_->setSfxVolume(audio_->sfxVolume() + delta); changed = true; }
             }
             if (in.hit(Key::Confirm)) {
-                if (menuIndex_ == 2) {
-                    audio_->toggleMute();
-                    changed = true;
-                } else if (menuIndex_ == 3) {
-                    menuPage_ = 0;
-                    menuIndex_ = 4;
-                }
+                if (menuIndex_ == 2) { audio_->toggleMute(); changed = true; }
+                else if (menuIndex_ == 3) { menuPage_ = 0; menuIndex_ = 4; }
             }
-            if (in.hit(Key::Cancel)) {
-                menuPage_ = 0;
-                menuIndex_ = 4;
-            }
+            if (in.hit(Key::Cancel)) { menuPage_ = 0; menuIndex_ = 4; }
         } else if (in.hit(Key::Cancel) || in.hit(Key::Confirm)) {
-            menuPage_ = 0;
-            menuIndex_ = 4;
+            menuPage_ = 0; menuIndex_ = 4;
         }
         if (changed) settingsDirty_ = true;
     }
@@ -1607,14 +2025,11 @@ void Game::updateShop(float dt, const InputState& in) {
     menuFeedback(in);
     if (in.hit(Key::Up)) shopIndex_ = (shopIndex_ + SHOP_COUNT - 1) % SHOP_COUNT;
     if (in.hit(Key::Down)) shopIndex_ = (shopIndex_ + 1) % SHOP_COUNT;
-    if (in.hit(Key::Cancel) || in.hit(Key::Menu)) {
-        state_ = GameState::Explore;
-        return;
-    }
+    if (in.hit(Key::Cancel) || in.hit(Key::Menu)) { state_ = GameState::Explore; return; }
     if (!in.hit(Key::Confirm)) return;
     const ShopItem& item = SHOP[shopIndex_];
     if (player_.gold < item.price) {
-        shopMessage_ = "Emasmu tidak cukup.";
+        shopMessage_ = "Keping Garammu tidak cukup.";
         shopMessageTimer_ = 2.2f;
         playSfx(SfxId::MenuCancel);
         return;
@@ -1623,27 +2038,21 @@ void Game::updateShop(float dt, const InputState& in) {
     if (item.kind == 0) {
         player_.potions = std::min(99, player_.potions + 1);
         player_.gold -= item.price;
-        shopMessage_ = "Ramuan dibeli.";
+        shopMessage_ = "Ramuan Pelita dibeli.";
     } else if (item.kind == 1) {
         player_.elixirs = std::min(99, player_.elixirs + 1);
         player_.gold -= item.price;
-        shopMessage_ = "Eliksir dibeli.";
+        shopMessage_ = "Eliksir Sumsum dibeli.";
     } else if (item.kind == 2) {
-        if (player_.weapon >= item.index) {
-            shopMessage_ = "Kau sudah punya senjata yang lebih baik.";
-        } else {
-            player_.weapon = item.index;
-            player_.gold -= item.price;
-            shopMessage_ = std::string(item.name) + " dibeli!";
-        }
+        player_.oil = std::min(99, player_.oil + 1);
+        player_.gold -= item.price;
+        shopMessage_ = "Minyak Sumsum dibeli.";
+    } else if (item.kind == 3) {
+        if (player_.weapon >= item.index) shopMessage_ = "Kau sudah punya senjata yang lebih baik.";
+        else { player_.weapon = item.index; player_.gold -= item.price; shopMessage_ = std::string(item.name) + " dibeli!"; }
     } else {
-        if (player_.armor >= item.index) {
-            shopMessage_ = "Kau sudah punya armor yang lebih baik.";
-        } else {
-            player_.armor = item.index;
-            player_.gold -= item.price;
-            shopMessage_ = std::string(item.name) + " dibeli!";
-        }
+        if (player_.armor >= item.index) shopMessage_ = "Kau sudah punya armor yang lebih baik.";
+        else { player_.armor = item.index; player_.gold -= item.price; shopMessage_ = std::string(item.name) + " dibeli!"; }
     }
     playSfx(player_.gold < goldBefore ? SfxId::Coin : SfxId::MenuCancel);
     shopMessageTimer_ = 2.2f;
@@ -1662,12 +2071,12 @@ void Game::updateGameOver(float dt, const InputState& in) {
         map_ = world_.indexOf("village");
         if (map_ < 0) map_ = 0;
         px_ = 14 * TILE;
-        py_ = 18 * TILE;
+        py_ = 16 * TILE;
         facing_ = 1;
         updateCamera(100.0f);
         state_ = GameState::Explore;
         mapBanner_ = 3.0f;
-        mapBannerText_ = "Kau bangkit kembali di Elmwood.";
+        mapBannerText_ = "Kau bangkit kembali di Tambak-Abu.";
     } else {
         state_ = GameState::Title;
         titleIndex_ = 0;
@@ -1677,7 +2086,6 @@ void Game::updateGameOver(float dt, const InputState& in) {
 
 void Game::updateEnding(float dt, const InputState& in) {
     endingScroll_ += dt * 22.0f;
-    if (in.hit(Key::Confirm) && endingScroll_ > 100.0f) playSfx(SfxId::MenuSelect);
     if (in.hit(Key::Confirm) && endingScroll_ > 100.0f) {
         state_ = GameState::Title;
         titleIndex_ = 0;
@@ -1691,13 +2099,11 @@ void Game::update(float dt, const InputState& in) {
     updateParticles(dt);
     if (flash_ > 0.0f) flash_ = std::max(0.0f, flash_ - dt);
     if (shake_ > 0.0f) shake_ = std::max(0.0f, shake_ - dt);
-
     if (transition_) {
         updateTransition(dt);
         updateMusic();
         return;
     }
-
     switch (state_) {
         case GameState::Title: updateTitle(dt, in); break;
         case GameState::Explore: updateExplore(dt, in); break;
@@ -1737,7 +2143,7 @@ void Game::debugSetFacing(int facing) { facing_ = clampInt(facing, 0, 3); }
 
 void Game::debugStartBattle(EnemyType type, bool boss) {
     state_ = GameState::Battle;
-    battle_.begin(player_, type, boss, rng_.next());
+    battle_.begin(player_, type, boss, rng_.next(), &companions_, &flags_.resonance);
 }
 
 void Game::debugOpenMenu() {
@@ -1750,6 +2156,10 @@ void Game::debugInteract() { interact(); }
 
 void Game::debugAdvanceDialogue() {
     for (int i = 0; i < 64 && state_ == GameState::Dialogue; ++i) {
+        if (dlg_.choosing) {
+            applyChoice(0);
+            break;
+        }
         InputState in;
         in.pressed[static_cast<int>(Key::Confirm)] = true;
         updateDialogue(0.0f, in);
@@ -1766,7 +2176,7 @@ bool Game::debugChestOpened(int map, int index) const {
 void Game::debugOpenShop() {
     state_ = GameState::Shop;
     shopIndex_ = 0;
-    shopMessage_ = "Selamat datang di Toko Rilla!";
+    shopMessage_ = "Selamat datang di toko Joko Keling!";
     shopMessageTimer_ = 3.0f;
 }
 
@@ -1792,5 +2202,7 @@ const RoamingEnemy& Game::debugEnemy(int index) const {
     if (index < 0 || index >= static_cast<int>(list.size())) return dummy;
     return list[static_cast<size_t>(index)];
 }
+
+void Game::debugRecruit(CompanionId id) { recruit(id, 1 + flags_.act); }
 
 }  // namespace rpg

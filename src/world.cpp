@@ -60,6 +60,12 @@ void scatterFlowers(MapDef& m, Rng& rng, float chance) {
             if (m.at(x, y) == Tile::Grass && rng.chance(chance)) m.set(x, y, Tile::Flower);
 }
 
+void scatterTiles(MapDef& m, Rng& rng, Tile t, float chance) {
+    for (int y = 1; y < m.h - 1; ++y)
+        for (int x = 1; x < m.w - 1; ++x)
+            if (m.at(x, y) == Tile::Grass && rng.chance(chance)) m.set(x, y, t);
+}
+
 }  // namespace
 
 World::World() { build(); }
@@ -95,6 +101,7 @@ bool World::encounter(int map, int tx, int ty) const {
     if (m.encounterSet == 1) return t == Tile::TallGrass;
     if (m.encounterSet == 2) return t == Tile::CaveFloor;
     if (m.encounterSet == 3) return t == Tile::CaveFloor;
+    if (m.encounterSet == 4) return t == Tile::CaveFloor;
     return false;
 }
 
@@ -119,124 +126,158 @@ const ChestSpawn* World::chestAt(int map, int tx, int ty) const {
     return nullptr;
 }
 
+const EchoSpot* World::echoAt(int map, int tx, int ty) const {
+    const MapDef& m = def(map);
+    for (const auto& e : m.echoes)
+        if (e.x == tx && e.y == ty) return &e;
+    return nullptr;
+}
+
+const CampSpot* World::campAt(int map, int tx, int ty) const {
+    const MapDef& m = def(map);
+    for (const auto& c : m.camps)
+        if (c.x == tx && c.y == ty) return &c;
+    return nullptr;
+}
+
 void World::build() {
-    // ---------------- Village of Elmwood ----------------
+    // ---------------- 0: Desa Tambak-Abu ----------------
     {
-        MapDef m = makeBase("village", "Desa Elmwood", 30, 20, Tile::Grass);
+        MapDef m = makeBase("village", "Desa Tambak-Abu", 30, 20, Tile::Grass);
         border(m, Tile::Tree);
 
-        // Pond with a sandy shore.
         rect(m, 1, 12, 6, 5, Tile::Sand);
         rect(m, 2, 13, 4, 3, Tile::Water);
 
-        // Roads.
         rect(m, 14, 5, 2, 15, Tile::Path);
         rect(m, 5, 10, 21, 2, Tile::Path);
         rect(m, 12, 10, 6, 3, Tile::Path);
 
-        // Buildings.
-        house(m, 11, 1, 8);   // Elder's hall, door at (15,4)
-        house(m, 3, 6, 6);    // Shop, door at (6,9)
-        house(m, 21, 6, 6);   // Inn, door at (24,9)
+        house(m, 11, 1, 8);   // Warung Asap, door (15,4)
+        house(m, 3, 6, 6);    // Rumah Raka, door (6,9)
+        house(m, 21, 6, 6);   // Pos Garda, door (24,9)
 
-        // Trees and greenery.
         rect(m, 27, 2, 2, 4, Tile::Tree);
         rect(m, 1, 1, 2, 2, Tile::Tree);
         rect(m, 27, 13, 2, 4, Tile::Tree);
         rect(m, 2, 17, 3, 2, Tile::Tree);
         rect(m, 24, 17, 3, 2, Tile::Tree);
 
-        Rng rng(0xA11CE);
-        scatterFlowers(m, rng, 0.06f);
+        Rng rng(0xADD1C7);
+        scatterFlowers(m, rng, 0.05f);
 
         m.set(17, 12, Tile::Sign);
+        m.echoes.push_back({18, 12, 0});
+        m.camps.push_back({14, 16});
 
-        m.npcs.push_back({12, 6, NpcStyle::Elder, 0, 3});
-        m.npcs.push_back({6, 12, NpcStyle::Shopkeeper, 1, 0});
-        m.npcs.push_back({24, 12, NpcStyle::Innkeeper, 2, 0});
-        m.npcs.push_back({16, 16, NpcStyle::Guard, 3, 2});
-        m.npcs.push_back({9, 14, NpcStyle::Kid, 4, 0});
-        m.npcs.push_back({21, 14, NpcStyle::Farmer, 5, 2});
-        m.npcs.push_back({9, 7, NpcStyle::Villager, 8, 0});
+        m.npcs.push_back({12, 6, NpcStyle::MbokRatih, 0, 3});
+        m.npcs.push_back({16, 16, NpcStyle::Seno, 1, 2});
+        m.npcs.push_back({21, 14, NpcStyle::Villager, 6, 0});
+        m.npcs.push_back({9, 14, NpcStyle::Kid, 3, 0});
+        m.npcs.push_back({9, 7, NpcStyle::Farmer, 2, 0});
 
-        m.chests.push_back({26, 3, ItemId::Gold, 20});
+        m.chests.push_back({26, 3, ItemId::Oil, 2});
 
-        m.portals.push_back({14, 19, 2, 1, 1, 5, 27, 0});
-
+        m.portals.push_back({14, 18, 2, 1, 1, 17, 20, 0});
         maps_.push_back(std::move(m));
     }
 
-    // ---------------- Aetheria Plains ----------------
+    // ---------------- 1: Pelabuhan Besi Kertarajasa ----------------
     {
-        MapDef m = makeBase("overworld", "Padang Aetheria", 40, 30, Tile::Grass);
+        MapDef m = makeBase("harbor", "Pelabuhan Besi Kertarajasa", 34, 22, Tile::Path);
+        border(m, Tile::Wall);
+
+        house(m, 2, 2, 6);    // Toko Joko, door (5,5)
+        house(m, 12, 2, 7);   // Gudang minyak, door (15,5)
+        house(m, 24, 2, 6);   // Balai kapal, door (27,5)
+        house(m, 2, 12, 6);   // Bengkel Bima, door (5,15)
+        house(m, 24, 12, 6);  // Barak Garda, door (27,15)
+
+        rect(m, 8, 8, 18, 2, Tile::Path);
+        rect(m, 16, 4, 2, 12, Tile::Path);
+        rect(m, 4, 8, 2, 8, Tile::Path);
+        rect(m, 28, 8, 2, 8, Tile::Path);
+
+        rect(m, 13, 12, 8, 3, Tile::Sand);
+        m.set(15, 13, Tile::Sign);
+        m.set(18, 13, Tile::Sign);
+
+        m.camps.push_back({17, 18});
+        m.echoes.push_back({8, 8, 1});
+        m.echoes.push_back({28, 8, 2});
+
+        m.npcs.push_back({5, 6, NpcStyle::JokoKeling, 10, 0});
+        m.npcs.push_back({15, 9, NpcStyle::Bima, 11, 0});
+        m.npcs.push_back({26, 9, NpcStyle::Sekar, 12, 0});
+        m.npcs.push_back({20, 15, NpcStyle::Larasati, 13, 0});
+        m.npcs.push_back({10, 15, NpcStyle::Seno, 14, 2});
+        m.npcs.push_back({17, 10, NpcStyle::Guard, 15, 2});
+
+        m.chests.push_back({30, 4, ItemId::Oil, 2});
+        m.chests.push_back({14, 16, ItemId::SaltCrystal, 3});
+
+        m.portals.push_back({2, 18, 1, 1, 0, 14, 18, 3});
+        m.portals.push_back({31, 18, 1, 1, 2, 2, 18, 2});
+        m.portals.push_back({20, 2, 1, 1, 4, 17, 24, 1, 1});
+        m.portals.push_back({1, 8, 1, 1, 5, 2, 16, 3, 2});
+        m.portals.push_back({19, 2, 1, 1, 7, 15, 20, 1, 3});
+        maps_.push_back(std::move(m));
+    }
+
+    // ---------------- 2: Rimba Karang-Kelabu ----------------
+    {
+        MapDef m = makeBase("rimba", "Rimba Karang-Kelabu", 32, 24, Tile::Grass);
         border(m, Tile::Tree);
 
-        // River with a wooden bridge.
-        rect(m, 24, 0, 3, 30, Tile::Water);
-        rect(m, 24, 14, 3, 3, Tile::Bridge);
+        rect(m, 1, 17, 8, 2, Tile::Path);
+        rect(m, 8, 17, 2, 5, Tile::Path);
+        rect(m, 10, 20, 12, 2, Tile::Path);
 
-        // Road network.
-        rect(m, 5, 22, 1, 7, Tile::Path);
-        rect(m, 5, 22, 14, 1, Tile::Path);
-        rect(m, 18, 15, 1, 8, Tile::Path);
-        rect(m, 18, 15, 6, 1, Tile::Path);
-        rect(m, 27, 16, 5, 1, Tile::Path);
-        rect(m, 31, 7, 1, 10, Tile::Path);
-        rect(m, 31, 7, 4, 1, Tile::Path);
-        rect(m, 4, 29, 3, 1, Tile::Path);
+        rect(m, 4, 4, 7, 5, Tile::Tree);
+        rect(m, 16, 3, 8, 6, Tile::Tree);
+        rect(m, 24, 12, 6, 6, Tile::Tree);
+        rect(m, 5, 12, 6, 5, Tile::Rock);
+        rect(m, 20, 14, 3, 3, Tile::Rock);
 
-        // Mountain wall, cave mouth, and the sealed ruin gate.
-        rect(m, 30, 0, 10, 6, Tile::CaveWall);
-        m.set(34, 6, Tile::CaveEntrance);
-        m.set(36, 6, Tile::RuinEntrance);
+        rect(m, 12, 6, 5, 4, Tile::TallGrass);
+        rect(m, 22, 5, 4, 3, Tile::TallGrass);
+        rect(m, 7, 18, 5, 3, Tile::TallGrass);
+        rect(m, 16, 18, 6, 3, Tile::TallGrass);
+        rect(m, 27, 18, 4, 3, Tile::TallGrass);
 
-        // Tall grass patches.
-        rect(m, 8, 10, 5, 4, Tile::TallGrass);
-        rect(m, 13, 24, 7, 3, Tile::TallGrass);
-        rect(m, 19, 8, 4, 3, Tile::TallGrass);
-        rect(m, 33, 18, 5, 4, Tile::TallGrass);
-        rect(m, 7, 17, 4, 2, Tile::TallGrass);
-        rect(m, 2, 24, 3, 3, Tile::TallGrass);
+        Rng rng(0xCAF0D);
+        scatterTiles(m, rng, Tile::TallGrass, 0.03f);
 
-        // Forests.
-        rect(m, 2, 2, 6, 4, Tile::Tree);
-        rect(m, 12, 3, 5, 5, Tile::Tree);
-        rect(m, 20, 3, 4, 3, Tile::Tree);
-        rect(m, 27, 22, 7, 5, Tile::Tree);
-        rect(m, 35, 10, 4, 4, Tile::Tree);
-        rect(m, 2, 12, 4, 3, Tile::Tree);
-        rect(m, 9, 25, 3, 3, Tile::Tree);
+        m.camps.push_back({6, 18});
+        m.echoes.push_back({24, 8, 3});
+        m.echoes.push_back({28, 18, 4});
 
-        m.set(22, 17, Tile::Sign);
+        m.npcs.push_back({20, 12, NpcStyle::Villager, 20, 0});
+        m.npcs.push_back({26, 6, NpcStyle::Pertapa, 21, 0});
 
-        m.chests.push_back({3, 10, ItemId::Potion, 2});
-        m.chests.push_back({36, 22, ItemId::Gold, 60});
+        m.chests.push_back({11, 4, ItemId::Potion, 2});
+        m.chests.push_back({29, 5, ItemId::SaltCrystal, 2});
 
-        m.portals.push_back({34, 6, 1, 1, 2, 16, 23, 1});
-        m.portals.push_back({4, 29, 3, 1, 0, 14, 18, 1});
-        m.portals.push_back({36, 6, 1, 1, 3, 17, 24, 2, true});
-
+        m.portals.push_back({2, 18, 1, 1, 1, 31, 18, 3});
+        m.portals.push_back({21, 21, 1, 1, 3, 16, 21, 1, 2});
         m.encounterSet = 1;
         maps_.push_back(std::move(m));
     }
 
-    // ---------------- Shadow Cave ----------------
+    // ---------------- 3: Sumur Ratapan ----------------
     {
-        MapDef m = makeBase("cave", "Gua Bayangan", 34, 26, Tile::CaveWall);
+        MapDef m = makeBase("sumur", "Sumur Ratapan", 30, 24, Tile::CaveWall);
 
-        // Entry hall and corridors.
-        rect(m, 12, 19, 10, 7, Tile::CaveFloor);
+        rect(m, 12, 19, 10, 5, Tile::CaveFloor);
         rect(m, 16, 14, 2, 6, Tile::CaveFloor);
         rect(m, 5, 13, 8, 6, Tile::CaveFloor);
         rect(m, 12, 15, 11, 2, Tile::CaveFloor);
-        rect(m, 22, 12, 10, 7, Tile::CaveFloor);
-        // Upper corridor into the boss chamber and the right-hand room.
+        rect(m, 22, 12, 6, 7, Tile::CaveFloor);
         rect(m, 19, 8, 4, 5, Tile::CaveFloor);
-        rect(m, 11, 2, 14, 7, Tile::CaveFloor);
+        rect(m, 11, 2, 12, 7, Tile::CaveFloor);
 
-        m.set(16, 25, Tile::CaveEntrance);
+        m.set(16, 22, Tile::CaveEntrance);
 
-        // Hazards and pillars.
         rect(m, 23, 13, 2, 2, Tile::Lava);
         rect(m, 27, 13, 2, 1, Tile::Lava);
         m.set(13, 3, Tile::Pillar);
@@ -244,54 +285,174 @@ void World::build() {
         m.set(13, 6, Tile::Pillar);
         m.set(21, 6, Tile::Pillar);
 
+        m.echoes.push_back({16, 8, 5});
+        m.echoes.push_back({22, 12, 6});
+
+        m.npcs.push_back({16, 4, NpcStyle::Warden, 30, 0});
+
         m.chests.push_back({7, 16, ItemId::Elixir, 2});
-        m.chests.push_back({29, 15, ItemId::Gold, 80});
-        m.chests.push_back({23, 5, ItemId::IronSword, 1});
-        m.chests.push_back({12, 4, ItemId::ChainMail, 1});
+        m.chests.push_back({26, 15, ItemId::Oil, 2});
+        m.chests.push_back({13, 4, ItemId::SoulDagger, 1});
 
-        m.npcs.push_back({17, 4, NpcStyle::Warden, 7, 0});
-
-        m.portals.push_back({16, 25, 1, 1, 1, 34, 7, 0});
-
+        m.portals.push_back({16, 22, 1, 1, 2, 21, 21, 0});
         m.encounterSet = 2;
         maps_.push_back(std::move(m));
     }
 
-    // ---------------- Dawn Ruins ----------------
+    // ---------------- 4: Candi Tenggelam Saptatirta ----------------
     {
-        MapDef m = makeBase("ruins", "Reruntuhan Fajar", 36, 28, Tile::CaveWall);
+        MapDef m = makeBase("candi", "Candi Tenggelam Saptatirta", 34, 26, Tile::CaveWall);
 
-        // Entry hall, central nave, side chapels, and the guardian's arena.
-        rect(m, 12, 21, 12, 6, Tile::CaveFloor);
+        rect(m, 12, 21, 12, 5, Tile::CaveFloor);
         rect(m, 17, 14, 2, 7, Tile::CaveFloor);
         rect(m, 7, 8, 22, 7, Tile::CaveFloor);
         rect(m, 3, 10, 5, 5, Tile::CaveFloor);
         rect(m, 27, 10, 6, 5, Tile::CaveFloor);
         rect(m, 12, 2, 12, 7, Tile::CaveFloor);
 
-        m.set(17, 26, Tile::RuinEntrance);
+        m.set(17, 24, Tile::RuinEntrance);
 
-        // Cracked floor hazards.
         rect(m, 14, 11, 2, 1, Tile::Lava);
         rect(m, 20, 12, 3, 1, Tile::Lava);
 
-        // Broken pillars frame the guardian arena.
         m.set(13, 3, Tile::Pillar);
         m.set(22, 3, Tile::Pillar);
         m.set(13, 6, Tile::Pillar);
         m.set(22, 6, Tile::Pillar);
 
-        m.chests.push_back({4, 11, ItemId::DawnSword, 1});
-        m.chests.push_back({30, 11, ItemId::DawnShield, 1});
-        m.chests.push_back({25, 9, ItemId::Gold, 150});
-        m.chests.push_back({9, 12, ItemId::Elixir, 2});
-        m.chests.push_back({20, 22, ItemId::Potion, 2});
+        m.echoes.push_back({8, 10, 7});
+        m.echoes.push_back({26, 10, 8});
 
-        m.npcs.push_back({17, 4, NpcStyle::Guardian, 9, 0});
+        m.npcs.push_back({17, 8, NpcStyle::Bagas, 40, 0});
+        m.npcs.push_back({17, 4, NpcStyle::Guardian, 41, 0});
 
-        m.portals.push_back({17, 26, 1, 1, 1, 36, 7, 0});
+        m.chests.push_back({4, 12, ItemId::TuningStaff, 1});
+        m.chests.push_back({29, 12, ItemId::Oil, 2});
+        m.chests.push_back({17, 14, ItemId::TirtaCore, 1});
 
+        m.portals.push_back({17, 24, 1, 1, 1, 20, 2, 0});
         m.encounterSet = 3;
+        maps_.push_back(std::move(m));
+    }
+
+    // ---------------- 5: Biara Ordo Pelita Putih ----------------
+    {
+        MapDef m = makeBase("biara", "Biara Ordo Pelita Putih", 28, 20, Tile::Grass);
+        border(m, Tile::Tree);
+
+        house(m, 3, 2, 7);    // Aula biara, door (6,5)
+        house(m, 18, 2, 6);   // Asrama, door (21,5)
+        house(m, 3, 12, 6);   // Klinik, door (6,15)
+
+        rect(m, 8, 8, 14, 2, Tile::Path);
+        rect(m, 14, 4, 2, 12, Tile::Path);
+        rect(m, 10, 12, 8, 2, Tile::Sand);
+
+        Rng rng(0xB1A2A);
+        scatterFlowers(m, rng, 0.04f);
+
+        m.camps.push_back({14, 16});
+        m.echoes.push_back({14, 8, 9});
+
+        m.npcs.push_back({7, 6, NpcStyle::Nirmala, 50, 0});
+        m.npcs.push_back({20, 14, NpcStyle::Pelarian, 51, 0});
+        m.npcs.push_back({6, 16, NpcStyle::Villager, 52, 0});
+
+        m.chests.push_back({24, 16, ItemId::Oil, 2});
+        m.chests.push_back({5, 16, ItemId::Potion, 2});
+
+        m.portals.push_back({2, 16, 1, 1, 1, 1, 8, 3});
+        m.portals.push_back({25, 5, 1, 1, 6, 2, 16, 2, 3});
+        maps_.push_back(std::move(m));
+    }
+
+    // ---------------- 6: Taman Lentera Mati ----------------
+    {
+        MapDef m = makeBase("taman", "Taman Lentera Mati", 26, 18, Tile::Sand);
+        border(m, Tile::Rock);
+
+        rect(m, 3, 3, 20, 2, Tile::Rock);
+        rect(m, 3, 13, 20, 2, Tile::Rock);
+        rect(m, 5, 7, 16, 4, Tile::Path);
+
+        for (int x = 4; x <= 22; x += 3) {
+            m.set(x, 5, Tile::Pillar);
+            m.set(x, 12, Tile::Pillar);
+        }
+
+        m.echoes.push_back({13, 8, 10});
+        m.npcs.push_back({20, 10, NpcStyle::Pelarian, 60, 0});
+
+        m.chests.push_back({23, 5, ItemId::SaltNoSorrow, 1});
+        m.chests.push_back({3, 5, ItemId::KidungBook, 1});
+
+        m.portals.push_back({2, 16, 1, 1, 5, 25, 5, 3});
+        maps_.push_back(std::move(m));
+    }
+
+    // ---------------- 7: Kraton Pualam Surya ----------------
+    {
+        MapDef m = makeBase("kraton", "Kraton Pualam Surya", 30, 22, Tile::Path);
+        border(m, Tile::Wall);
+
+        house(m, 10, 2, 10);   // Ruang tahta, door (15,5)
+        house(m, 2, 2, 6);     // Aula, door (5,5)
+        house(m, 22, 2, 6);    // Gajah, door (25,5)
+        house(m, 2, 12, 6);    // Klinik, door (5,15)
+        house(m, 22, 12, 6);   // Penjara, door (25,15)
+
+        rect(m, 8, 8, 14, 2, Tile::Sand);
+        rect(m, 14, 5, 2, 12, Tile::Path);
+        rect(m, 8, 14, 14, 2, Tile::Path);
+
+        m.camps.push_back({15, 18});
+        m.echoes.push_back({8, 10, 11});
+
+        m.npcs.push_back({15, 8, NpcStyle::Kirana, 70, 0});
+        m.npcs.push_back({15, 6, NpcStyle::Adipati, 71, 0});
+        m.npcs.push_back({20, 4, NpcStyle::Guntur, 72, 0});
+        m.npcs.push_back({10, 14, NpcStyle::Seno, 73, 2});
+        m.npcs.push_back({25, 16, NpcStyle::Guard, 74, 2});
+
+        m.chests.push_back({4, 16, ItemId::Oil, 2});
+        m.chests.push_back({25, 16, ItemId::SaltCrystal, 2});
+        m.chests.push_back({5, 16, ItemId::CourtKey, 1});
+
+        m.portals.push_back({15, 20, 1, 1, 1, 19, 2, 2});
+        m.portals.push_back({8, 2, 1, 1, 8, 17, 24, 1, 4});
+        maps_.push_back(std::move(m));
+    }
+
+    // ---------------- 8: Jantung Palung Sunyi ----------------
+    {
+        MapDef m = makeBase("palung", "Jantung Palung Sunyi", 34, 26, Tile::CaveWall);
+
+        rect(m, 12, 20, 10, 6, Tile::CaveFloor);
+        rect(m, 16, 14, 2, 7, Tile::CaveFloor);
+        rect(m, 8, 8, 18, 7, Tile::CaveFloor);
+        rect(m, 12, 2, 12, 7, Tile::CaveFloor);
+        rect(m, 3, 10, 5, 5, Tile::CaveFloor);
+        rect(m, 26, 10, 5, 5, Tile::CaveFloor);
+
+        m.set(17, 24, Tile::CaveEntrance);
+
+        rect(m, 14, 11, 2, 1, Tile::Lava);
+        rect(m, 20, 12, 3, 1, Tile::Lava);
+        m.set(13, 3, Tile::Pillar);
+        m.set(22, 3, Tile::Pillar);
+        m.set(13, 6, Tile::Pillar);
+        m.set(22, 6, Tile::Pillar);
+
+        m.echoes.push_back({17, 10, 11});
+
+        m.npcs.push_back({17, 9, NpcStyle::Guntur, 80, 0});
+        m.npcs.push_back({17, 3, NpcStyle::Guardian, 81, 0});
+
+        m.chests.push_back({13, 20, ItemId::Elixir, 2});
+        m.chests.push_back({20, 20, ItemId::Oil, 2});
+
+        m.portals.push_back({17, 24, 1, 1, 7, 8, 2, 0});
+        m.encounterSet = 4;
         maps_.push_back(std::move(m));
     }
 }

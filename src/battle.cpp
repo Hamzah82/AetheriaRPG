@@ -1,6 +1,7 @@
-// battle.cpp - turn based combat logic and presentation
+// battle.cpp - party-based turn combat logic and presentation
 #include "battle.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "art.h"
@@ -10,19 +11,23 @@ namespace rpg {
 
 namespace {
 const EnemyInfo ENEMIES[] = {
-    {EnemyType::Slime, "Slime", 1, 18, 5, 1, 8, 5, 1},
-    {EnemyType::Bat, "Kelelawar", 2, 22, 7, 2, 12, 8, 2},
-    {EnemyType::Wolf, "Serigala", 3, 34, 10, 3, 20, 15, 1},
-    {EnemyType::Skeleton, "Tengkorak", 4, 46, 13, 6, 32, 26, 2},
-    {EnemyType::Warden, "Warden Bayangan", 8, 180, 18, 8, 150, 250, 0},
-    {EnemyType::Guardian, "Penjaga Fajar", 10, 260, 22, 10, 220, 400, 2},
+    {EnemyType::KumbangPualam, "Kumbang Pualam", 1, 22, 6, 2, 10, 6, 1},
+    {EnemyType::GukAbu, "Anjing Kabut", 2, 28, 9, 2, 14, 10, 2},
+    {EnemyType::ArwahGema, "Arwah Gema", 3, 36, 11, 4, 20, 16, 2},
+    {EnemyType::PenambangPualam, "Penambang Pualam", 4, 48, 13, 7, 30, 24, 1},
+    {EnemyType::Koral, "Koral Berduri", 5, 60, 15, 9, 40, 32, 2},
+    {EnemyType::Inkuisitor, "Inkuisitor", 8, 200, 18, 8, 180, 260, 0},
+    {EnemyType::Gajamina, "Gajamina Pualam", 10, 300, 22, 11, 260, 400, 2},
+    {EnemyType::Adipati, "Adipati Mahardika", 12, 340, 24, 12, 320, 500, 0},
+    {EnemyType::Guntur, "Raden Guntur", 14, 420, 27, 14, 400, 600, 0},
+    {EnemyType::GemaPertama, "Gema Pertama", 16, 520, 30, 16, 600, 800, 0},
 };
-constexpr int ENEMY_COUNT = 6;
+constexpr int ENEMY_COUNT = 10;
 
 const int ENEMY_X = 214;
-const int ENEMY_Y = 124;
+const int ENEMY_Y = 118;
 const int HERO_X = 36;
-const int HERO_Y = 112;
+const int HERO_Y = 106;
 
 void panel(Framebuffer& fb, int x, int y, int w, int h) {
     fb.fillRectA(x, y, w, h, pal::uiPanel, 238);
@@ -53,23 +58,34 @@ const EnemyInfo& enemyInfo(EnemyType type) {
     return ENEMIES[idx];
 }
 
-void Battle::begin(Player& p, EnemyType type, bool boss, uint64_t seed) {
+void Battle::begin(Player& p, EnemyType type, bool boss, uint64_t seed,
+                   std::vector<Companion>* party, int* resonance) {
     (void)p;
     info_ = enemyInfo(type);
     boss_ = boss;
     enemyMaxHp_ = info_.hp;
     enemyHp_ = info_.hp;
     rng_ = Rng(seed);
+    party_ = party;
+    resonance_ = resonance;
     phase_ = Phase::Message;
     next_ = Next::Command;
     messages_.clear();
     pushMessage(std::string(info_.name) + " muncul!");
+    if (boss_) pushMessage("Pertarungan besar dimulai!");
     msgIndex_ = 0;
     chars_ = 0.0f;
     autoTimer_ = 0.0f;
     menuIndex_ = 0;
     subIndex_ = 0;
     turnCount_ = 0;
+    companionIndex_ = 0;
+    guard_ = 0;
+    enemyStun_ = 0;
+    enemyDefDown_ = 0;
+    tumbalUsed_ = false;
+    resonanceSpent_ = false;
+    bossPhase_ = 1;
     t_ = 0.0f;
     hurtT_ = shakeT_ = flashT_ = healT_ = 0.0f;
     effect_ = 0;
@@ -105,7 +121,8 @@ int damageRoll(Rng& rng, int base, int spread) {
 
 void Battle::playerAttack(Player& p) {
     bool crit = rng_.chance(0.10f);
-    int dmg = damageRoll(rng_, p.atk() * 2 - info_.def, 2);
+    int def = std::max(0, info_.def - enemyDefDown_);
+    int dmg = damageRoll(rng_, p.atk() * 2 - def, 2);
     if (crit) dmg = dmg * 3 / 2;
     sfx(crit ? SfxId::Crit : SfxId::Attack);
     enemyHp_ = clampInt(enemyHp_ - dmg, 0, enemyMaxHp_);
@@ -113,7 +130,7 @@ void Battle::playerAttack(Player& p) {
     effectT_ = 0.0f;
     hurtT_ = 0.25f;
     shakeT_ = 0.18f;
-    pushMessage("Kau menebas " + std::string(info_.name) + "! (-" + itoa2(dmg) + " HP)");
+    pushMessage("Raka menebas " + std::string(info_.name) + "! (-" + itoa2(dmg) + " HP)");
     if (crit) pushMessage("Serangan kritis!");
     if (enemyHp_ <= 0) {
         pushMessage(std::string(info_.name) + " dikalahkan!");
@@ -128,28 +145,126 @@ void Battle::playerAttack(Player& p) {
     autoTimer_ = 0.0f;
 }
 
-void Battle::castFire(Player& p) {
-    const int cost = 5;
-    if (p.mp < cost) {
-        pushMessage("MP tidak cukup untuk Bola Api!");
-        next_ = Next::Command;
-        phase_ = Phase::Message;
-        msgIndex_ = 0;
-        chars_ = 0.0f;
-        return;
+void Battle::castSkill(Player& p, int index) {
+    auto spendResonance = [&](int amount) {
+        if (!resonance_) return;
+        *resonance_ = clampInt(*resonance_ - amount, 0, 100);
+        resonanceSpent_ = true;
+    };
+    if (index == 0) {
+        const int cost = 5;
+        if (p.mp < cost) {
+            pushMessage("MP tidak cukup untuk Api Garam!");
+            next_ = Next::Command;
+            phase_ = Phase::Message;
+            msgIndex_ = 0;
+            chars_ = 0.0f;
+            return;
+        }
+        p.mp -= cost;
+        sfx(SfxId::Fire);
+        int dmg = damageRoll(rng_, 12 + p.level * 4, 3);
+        if (info_.weak == 1) dmg = dmg * 3 / 2;
+        enemyHp_ = clampInt(enemyHp_ - dmg, 0, enemyMaxHp_);
+        effect_ = 1;
+        effectT_ = 0.0f;
+        hurtT_ = 0.3f;
+        flashT_ = 0.12f;
+        pushMessage("Api Garam menghantam " + std::string(info_.name) + "! (-" + itoa2(dmg) + " HP)");
+        if (info_.weak == 1) pushMessage("Super efektif!");
+    } else if (index == 1) {
+        const int cost = 7;
+        if (p.mp < cost) {
+            pushMessage("MP tidak cukup untuk Petir Garam!");
+            next_ = Next::Command;
+            phase_ = Phase::Message;
+            msgIndex_ = 0;
+            chars_ = 0.0f;
+            return;
+        }
+        p.mp -= cost;
+        sfx(SfxId::Thunder);
+        int dmg = damageRoll(rng_, 16 + p.level * 4, 3);
+        if (info_.weak == 2) dmg = dmg * 3 / 2;
+        enemyHp_ = clampInt(enemyHp_ - dmg, 0, enemyMaxHp_);
+        effect_ = 2;
+        effectT_ = 0.0f;
+        hurtT_ = 0.3f;
+        flashT_ = 0.2f;
+        shakeT_ = 0.2f;
+        pushMessage("Petir Garam menyambar " + std::string(info_.name) + "! (-" + itoa2(dmg) + " HP)");
+        if (info_.weak == 2) pushMessage("Super efektif!");
+    } else if (index == 2) {
+        const int cost = 8;
+        if (p.mp < cost) {
+            pushMessage("MP tidak cukup untuk Ledakan Kenangan!");
+            next_ = Next::Command;
+            phase_ = Phase::Message;
+            msgIndex_ = 0;
+            chars_ = 0.0f;
+            return;
+        }
+        p.mp -= cost;
+        spendResonance(4);
+        sfx(SfxId::BossRoar);
+        int dmg = damageRoll(rng_, 22 + p.level * 5, 4);
+        enemyHp_ = clampInt(enemyHp_ - dmg, 0, enemyMaxHp_);
+        effect_ = 5;
+        effectT_ = 0.0f;
+        hurtT_ = 0.35f;
+        shakeT_ = 0.28f;
+        flashT_ = 0.18f;
+        pushMessage("Ledakan Kenangan menghantam " + std::string(info_.name) + "! (-" +
+                    itoa2(dmg) + " HP)");
+        pushMessage("Resonansimu terkikis...");
+    } else if (index == 3) {
+        const int cost = 6;
+        if (p.mp < cost) {
+            pushMessage("MP tidak cukup untuk Kidung Garam!");
+            next_ = Next::Command;
+            phase_ = Phase::Message;
+            msgIndex_ = 0;
+            chars_ = 0.0f;
+            return;
+        }
+        p.mp -= cost;
+        sfx(SfxId::Heal);
+        int amount = 30 + p.level * 5;
+        int before = p.hp;
+        p.healHp(amount);
+        int healed = p.hp - before;
+        effect_ = 3;
+        effectT_ = 0.0f;
+        healT_ = 0.5f;
+        pushMessage("Kidung Garam memulihkan Raka. (+" + itoa2(healed) + " HP)");
+    } else {
+        if (tumbalUsed_) {
+            pushMessage("Tumbal Rasa sudah dipakai di pertarungan ini.");
+            next_ = Next::Command;
+            phase_ = Phase::Message;
+            msgIndex_ = 0;
+            chars_ = 0.0f;
+            return;
+        }
+        if (!resonance_ || *resonance_ < 15) {
+            pushMessage("Resonansi emosi terlalu rendah untuk Tumbal Rasa.");
+            next_ = Next::Command;
+            phase_ = Phase::Message;
+            msgIndex_ = 0;
+            chars_ = 0.0f;
+            return;
+        }
+        spendResonance(15);
+        tumbalUsed_ = true;
+        guard_ = 2;
+        p.hp = p.maxHp;
+        sfx(SfxId::Heal);
+        effect_ = 3;
+        effectT_ = 0.0f;
+        healT_ = 0.6f;
+        pushMessage("Tumbal Rasa memulihkan Raka seutuhnya!");
+        pushMessage("Para rekan menahan serangan untukmu.");
     }
-    p.mp -= cost;
-    sfx(SfxId::Fire);
-    int dmg = damageRoll(rng_, 10 + p.level * 4, 3);
-    bool weak = info_.weak == 1;
-    if (weak) dmg = dmg * 3 / 2;
-    enemyHp_ = clampInt(enemyHp_ - dmg, 0, enemyMaxHp_);
-    effect_ = 1;
-    effectT_ = 0.0f;
-    hurtT_ = 0.3f;
-    flashT_ = 0.12f;
-    pushMessage("Bola api menghantam " + std::string(info_.name) + "! (-" + itoa2(dmg) + " HP)");
-    if (weak) pushMessage("Super efektif!");
     if (enemyHp_ <= 0) {
         pushMessage(std::string(info_.name) + " dikalahkan!");
         next_ = Next::Victory;
@@ -157,69 +272,6 @@ void Battle::castFire(Player& p) {
     } else {
         next_ = Next::EnemyTurn;
     }
-    phase_ = Phase::Message;
-    msgIndex_ = 0;
-    chars_ = 0.0f;
-    autoTimer_ = 0.0f;
-}
-
-void Battle::castThunder(Player& p) {
-    const int cost = 7;
-    if (p.mp < cost) {
-        pushMessage("MP tidak cukup untuk Petir!");
-        next_ = Next::Command;
-        phase_ = Phase::Message;
-        msgIndex_ = 0;
-        chars_ = 0.0f;
-        return;
-    }
-    p.mp -= cost;
-    sfx(SfxId::Thunder);
-    int dmg = damageRoll(rng_, 14 + p.level * 4, 3);
-    bool weak = info_.weak == 2;
-    if (weak) dmg = dmg * 3 / 2;
-    enemyHp_ = clampInt(enemyHp_ - dmg, 0, enemyMaxHp_);
-    effect_ = 2;
-    effectT_ = 0.0f;
-    hurtT_ = 0.3f;
-    flashT_ = 0.2f;
-    shakeT_ = 0.2f;
-    pushMessage("Petir menyambar " + std::string(info_.name) + "! (-" + itoa2(dmg) + " HP)");
-    if (weak) pushMessage("Super efektif!");
-    if (enemyHp_ <= 0) {
-        pushMessage(std::string(info_.name) + " dikalahkan!");
-        next_ = Next::Victory;
-        messages_.push_back("Kemenangan!");
-    } else {
-        next_ = Next::EnemyTurn;
-    }
-    phase_ = Phase::Message;
-    msgIndex_ = 0;
-    chars_ = 0.0f;
-    autoTimer_ = 0.0f;
-}
-
-void Battle::castHeal(Player& p) {
-    const int cost = 5;
-    if (p.mp < cost) {
-        pushMessage("MP tidak cukup untuk Pulihkan!");
-        next_ = Next::Command;
-        phase_ = Phase::Message;
-        msgIndex_ = 0;
-        chars_ = 0.0f;
-        return;
-    }
-    p.mp -= cost;
-    sfx(SfxId::Heal);
-    int amount = 20 + p.level * 5;
-    int before = p.hp;
-    p.healHp(amount);
-    int healed = p.hp - before;
-    effect_ = 3;
-    effectT_ = 0.0f;
-    healT_ = 0.5f;
-    pushMessage("Cahaya memulihkanmu. (+" + itoa2(healed) + " HP)");
-    next_ = Next::EnemyTurn;
     phase_ = Phase::Message;
     msgIndex_ = 0;
     chars_ = 0.0f;
@@ -229,7 +281,7 @@ void Battle::castHeal(Player& p) {
 void Battle::useItem(Player& p, bool elixir) {
     if (elixir) {
         if (p.elixirs <= 0 || p.mp >= p.maxMp) {
-            pushMessage(p.elixirs <= 0 ? "Kau tidak punya Eliksir." : "MP sudah penuh.");
+            pushMessage(p.elixirs <= 0 ? "Kau tidak punya Eliksir Sumsum." : "MP sudah penuh.");
             next_ = Next::Command;
         } else {
             p.useElixir();
@@ -237,12 +289,12 @@ void Battle::useItem(Player& p, bool elixir) {
             effectT_ = 0.0f;
             healT_ = 0.5f;
             sfx(SfxId::Potion);
-            pushMessage("Kau memakai Eliksir. (+25 MP)");
+            pushMessage("Raka memakai Eliksir Sumsum. (+30 MP)");
             next_ = Next::EnemyTurn;
         }
     } else {
         if (p.potions <= 0 || p.hp >= p.maxHp) {
-            pushMessage(p.potions <= 0 ? "Kau tidak punya Ramuan." : "HP sudah penuh.");
+            pushMessage(p.potions <= 0 ? "Kau tidak punya Ramuan Pelita." : "HP sudah penuh.");
             next_ = Next::Command;
         } else {
             p.usePotion();
@@ -250,7 +302,7 @@ void Battle::useItem(Player& p, bool elixir) {
             effectT_ = 0.0f;
             healT_ = 0.5f;
             sfx(SfxId::Potion);
-            pushMessage("Kau memakai Ramuan. (+40 HP)");
+            pushMessage("Raka memakai Ramuan Pelita. (+45 HP)");
             next_ = Next::EnemyTurn;
         }
     }
@@ -263,7 +315,7 @@ void Battle::useItem(Player& p, bool elixir) {
 void Battle::tryFlee(Player& p) {
     (void)p;
     if (boss_) {
-        pushMessage("Bayangan menahanmu! Kau tidak bisa kabur.");
+        pushMessage("Musuh menahanmu! Kau tidak bisa kabur.");
         next_ = Next::EnemyTurn;
     } else if (rng_.chance(0.7f)) {
         sfx(SfxId::Flee);
@@ -279,33 +331,209 @@ void Battle::tryFlee(Player& p) {
     autoTimer_ = 0.0f;
 }
 
-void Battle::enemyTurn(Player& p) {
+void Battle::enemyTurn(Player& p, std::vector<Companion>& party) {
     ++turnCount_;
+    if (enemyStun_ > 0) {
+        --enemyStun_;
+        pushMessage(std::string(info_.name) + " terperangkap gema dan kehilangan giliran!");
+        next_ = party.empty() ? Next::Command : Next::CompanionTurn;
+        phase_ = Phase::Message;
+        msgIndex_ = 0;
+        chars_ = 0.0f;
+        autoTimer_ = 0.0f;
+        return;
+    }
+
+    // Choose a target: Raka or one of the alive companions. Bima's guard draws
+    // the attack to him while it lasts.
+    std::vector<std::string> names;
+    std::vector<int*> hps;
+    std::vector<int> maxs;
+    names.push_back("Raka");
+    hps.push_back(&p.hp);
+    maxs.push_back(p.maxHp);
+    if (party_ && guard_ > 0) {
+        for (auto& c : *party_)
+            if (c.recruited && c.alive && c.id == CompanionId::Bima) {
+                names.push_back(c.name);
+                hps.push_back(&c.hp);
+                maxs.push_back(c.maxHp);
+                break;
+            }
+    } else if (party_) {
+        for (auto& c : *party_)
+            if (c.recruited && c.alive) {
+                names.push_back(c.name);
+                hps.push_back(&c.hp);
+                maxs.push_back(c.maxHp);
+            }
+    }
+    int target = static_cast<int>(rng_.range(0, static_cast<int>(names.size()) - 1));
+
+    int def = 0;
+    if (names[target] == "Raka") def = p.def();
+    else {
+        for (auto& c : *party_)
+            if (c.recruited && c.name == names[target]) def = c.def;
+    }
+
     int dmg = 0;
-    std::string verb = "menyerangmu";
+    std::string verb = "menyerang";
     bool special = false;
     if (boss_ && turnCount_ % 3 == 0) {
-        dmg = damageRoll(rng_, info_.atk * 3 - p.def(), 3);
-        verb = info_.type == EnemyType::Guardian ? "melepaskan Tebasan Fajar"
-                                                 : "melancarkan Hantaman Bayangan";
+        dmg = damageRoll(rng_, info_.atk * 3 - def, 3);
+        verb = "melancarkan serangan penuh";
         special = true;
-    } else if (!boss_ && (info_.type == EnemyType::Wolf || info_.type == EnemyType::Skeleton) &&
+    } else if (!boss_ && (info_.type == EnemyType::GukAbu || info_.type == EnemyType::ArwahGema) &&
                rng_.chance(0.25f)) {
-        dmg = damageRoll(rng_, info_.atk * 2 + 4 - p.def(), 2);
-        verb = info_.type == EnemyType::Wolf ? "menerkammu" : "mengayun tulangnya";
+        dmg = damageRoll(rng_, info_.atk * 2 + 4 - def, 2);
         special = true;
     } else {
-        dmg = damageRoll(rng_, info_.atk * 2 - p.def(), 2);
+        dmg = damageRoll(rng_, info_.atk * 2 - def, 2);
+    }
+    if (boss_ && bossPhase_ == 1 && enemyHp_ * 2 <= enemyMaxHp_) {
+        bossPhase_ = 2;
+        pushMessage(std::string(info_.name) + " memasuki fase kedua!");
+    }
+    if (boss_ && bossPhase_ == 2) dmg = dmg * 5 / 4;
+    if (guard_ > 0) {
+        dmg = dmg * 3 / 10;
+        --guard_;
     }
     if (!boss_ && rng_.chance(0.05f)) dmg = dmg * 3 / 2;
     sfx(special && boss_ ? SfxId::BossRoar : SfxId::Hurt);
-    p.hp = clampInt(p.hp - dmg, 0, p.maxHp);
+    *hps[target] = clampInt(*hps[target] - dmg, 0, maxs[target]);
     shakeT_ = special ? 0.35f : 0.2f;
     flashT_ = 0.15f;
-    pushMessage(std::string(info_.name) + " " + verb + "! (-" + itoa2(dmg) + " HP)");
-    if (p.hp <= 0) {
-        pushMessage("Kau tumbang...");
+    pushMessage(std::string(info_.name) + " " + verb + " " + names[target] + "! (-" +
+                itoa2(dmg) + " HP)");
+
+    if (names[target] == "Raka" && p.hp <= 0) {
+        pushMessage("Raka tumbang...");
         next_ = Next::Defeat;
+    } else {
+        bool companionDown = false;
+        if (party_) {
+            for (auto& c : *party_) {
+                if (c.recruited && c.alive && c.hp <= 0) {
+                    c.alive = false;
+                    pushMessage(c.name + " tumbang!");
+                    companionDown = true;
+                }
+            }
+        }
+        (void)companionDown;
+        next_ = party_ && !party.empty() ? Next::CompanionTurn : Next::Command;
+    }
+    phase_ = Phase::Message;
+    msgIndex_ = 0;
+    chars_ = 0.0f;
+    autoTimer_ = 0.0f;
+}
+
+void Battle::companionTurn(Player& p, std::vector<Companion>& party) {
+    if (!party_) {
+        next_ = Next::Command;
+        phase_ = Phase::Message;
+        msgIndex_ = 0;
+        chars_ = 0.0f;
+        return;
+    }
+    int def = std::max(0, info_.def - enemyDefDown_);
+    for (auto& c : party) {
+        if (!c.recruited || !c.alive) continue;
+        switch (c.id) {
+            case CompanionId::Sekar: {
+                int dmg = damageRoll(rng_, c.atk * 2 - def, 2);
+                if (rng_.chance(0.25f)) {
+                    int dmg2 = damageRoll(rng_, c.atk * 2 - def, 2);
+                    dmg += dmg2;
+                    pushMessage("Sekar menebas dua kali! (-" + itoa2(dmg) + " HP)");
+                } else {
+                    pushMessage("Sekar menebas " + std::string(info_.name) + "! (-" +
+                                itoa2(dmg) + " HP)");
+                }
+                enemyHp_ = clampInt(enemyHp_ - dmg, 0, enemyMaxHp_);
+                break;
+            }
+            case CompanionId::Bima: {
+                if (rng_.chance(0.25f)) {
+                    guard_ = 2;
+                    pushMessage("Bima mengangkat Benteng Kapur!");
+                } else {
+                    int dmg = damageRoll(rng_, c.atk * 2 - def, 2);
+                    enemyHp_ = clampInt(enemyHp_ - dmg, 0, enemyMaxHp_);
+                    pushMessage("Bima menghantam " + std::string(info_.name) + "! (-" +
+                                itoa2(dmg) + " HP)");
+                }
+                break;
+            }
+            case CompanionId::Larasati: {
+                int lowest = 100;
+                bool healRaka = true;
+                int before = p.hp;
+                if (p.hp * 100 / std::max(1, p.maxHp) < 60) {
+                    lowest = p.hp * 100 / std::max(1, p.maxHp);
+                }
+                for (auto& other : party)
+                    if (other.recruited && other.alive) {
+                        int pct = other.hp * 100 / std::max(1, other.maxHp);
+                        if (pct < lowest) {
+                            lowest = pct;
+                            healRaka = false;
+                        }
+                    }
+                if (lowest < 60) {
+                    int healed = 0;
+                    if (healRaka) {
+                        int amount = 25 + c.level * 4;
+                        p.healHp(amount);
+                        healed = p.hp - before;
+                        pushMessage("Larasati menyembuhkan Raka. (+" + itoa2(healed) + " HP)");
+                    } else {
+                        for (auto& other : party)
+                            if (other.recruited && other.alive) {
+                                int pct = other.hp * 100 / std::max(1, other.maxHp);
+                                if (pct == lowest) {
+                                    int amount = 25 + c.level * 4;
+                                    int b = other.hp;
+                                    other.healHp(amount);
+                                    pushMessage("Larasati menyembuhkan " + other.name + ". (+" +
+                                                itoa2(other.hp - b) + " HP)");
+                                    break;
+                                }
+                            }
+                    }
+                } else {
+                    int dmg = damageRoll(rng_, c.atk * 2 - def, 2);
+                    enemyHp_ = clampInt(enemyHp_ - dmg, 0, enemyMaxHp_);
+                    pushMessage("Larasati memukul " + std::string(info_.name) + "! (-" +
+                                itoa2(dmg) + " HP)");
+                }
+                break;
+            }
+            case CompanionId::Bagas: {
+                if (rng_.chance(0.25f)) {
+                    enemyStun_ = 1;
+                    enemyDefDown_ = 2;
+                    pushMessage("Bagas membalik giliran dan melemahkan musuh!");
+                } else {
+                    int dmg = damageRoll(rng_, c.atk * 2 - def, 2);
+                    enemyHp_ = clampInt(enemyHp_ - dmg, 0, enemyMaxHp_);
+                    pushMessage("Bagas menyerang titik lemah! (-" + itoa2(dmg) + " HP)");
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        if (enemyHp_ <= 0) break;
+    }
+
+    if (enemyHp_ <= 0) {
+        pushMessage(std::string(info_.name) + " dikalahkan!");
+        next_ = Next::Victory;
+        messages_.push_back("Kemenangan!");
     } else {
         next_ = Next::Command;
     }
@@ -327,8 +555,7 @@ void Battle::applyRewards(Player& p) {
     if (!levelMsg_.empty()) sfx(SfxId::LevelUp);
 }
 
-void Battle::finishMessages(Player& p) {
-    // Messages for this step are done; never replay them on the next phase.
+void Battle::finishMessages(Player& p, std::vector<Companion>& party) {
     messages_.clear();
     msgIndex_ = 0;
     chars_ = 0.0f;
@@ -337,7 +564,10 @@ void Battle::finishMessages(Player& p) {
             goCommand();
             break;
         case Next::EnemyTurn:
-            enemyTurn(p);
+            enemyTurn(p, party);
+            break;
+        case Next::CompanionTurn:
+            companionTurn(p, party);
             break;
         case Next::Victory:
             applyRewards(p);
@@ -354,7 +584,7 @@ void Battle::finishMessages(Player& p) {
     }
 }
 
-void Battle::update(float dt, const InputState& in, Player& p) {
+void Battle::update(float dt, const InputState& in, Player& p, std::vector<Companion>& party) {
     t_ += dt;
     hurtT_ = std::max(0.0f, hurtT_ - dt);
     shakeT_ = std::max(0.0f, shakeT_ - dt);
@@ -375,7 +605,7 @@ void Battle::update(float dt, const InputState& in, Player& p) {
     switch (phase_) {
         case Phase::Message: {
             if (msgIndex_ >= messages_.size()) {
-                finishMessages(p);
+                finishMessages(p, party);
                 break;
             }
             const std::string& msg = messages_[msgIndex_];
@@ -395,13 +625,13 @@ void Battle::update(float dt, const InputState& in, Player& p) {
                     ++msgIndex_;
                     chars_ = 0.0f;
                     autoTimer_ = 0.0f;
-                    if (msgIndex_ >= messages_.size()) finishMessages(p);
+                    if (msgIndex_ >= messages_.size()) finishMessages(p, party);
                 }
             } else if (shown >= len && autoTimer_ > 2.6f) {
                 ++msgIndex_;
                 chars_ = 0.0f;
                 autoTimer_ = 0.0f;
-                if (msgIndex_ >= messages_.size()) finishMessages(p);
+                if (msgIndex_ >= messages_.size()) finishMessages(p, party);
             }
             break;
         }
@@ -423,14 +653,10 @@ void Battle::update(float dt, const InputState& in, Player& p) {
             break;
         }
         case Phase::SkillMenu: {
-            if (in.hit(Key::Up)) subIndex_ = (subIndex_ + 2) % 3;
-            if (in.hit(Key::Down)) subIndex_ = (subIndex_ + 1) % 3;
+            if (in.hit(Key::Up)) subIndex_ = (subIndex_ + 4) % 5;
+            if (in.hit(Key::Down)) subIndex_ = (subIndex_ + 1) % 5;
             if (in.hit(Key::Cancel)) phase_ = Phase::Command;
-            if (in.hit(Key::Confirm)) {
-                if (subIndex_ == 0) castFire(p);
-                else if (subIndex_ == 1) castThunder(p);
-                else castHeal(p);
-            }
+            if (in.hit(Key::Confirm)) castSkill(p, subIndex_);
             break;
         }
         case Phase::ItemMenu: {
@@ -461,7 +687,8 @@ void Battle::update(float dt, const InputState& in, Player& p) {
     }
 }
 
-void Battle::render(Framebuffer& fb, const Player& p, float time) {
+void Battle::render(Framebuffer& fb, const Player& p, const std::vector<Companion>& party,
+                    float time) {
     (void)time;
     bool dark = boss_;
     for (int y = 0; y < 240; ++y) {
@@ -470,11 +697,10 @@ void Battle::render(Framebuffer& fb, const Player& p, float time) {
                           : mix(rgba(38, 60, 92), rgba(120, 92, 120), k);
         fb.fillRect(0, y, VIEW_W, 1, c);
     }
-    // Distant hills on the horizon.
-    fb.fillEllipse(60, 140, 90, 40, dark ? rgba(26, 18, 40) : rgba(52, 76, 78));
-    fb.fillEllipse(260, 144, 110, 44, dark ? rgba(32, 20, 48) : rgba(58, 84, 82));
-    fb.fillRect(0, 130, VIEW_W, 110, dark ? rgba(24, 16, 36) : rgba(48, 74, 56));
-    fb.fillRect(0, 130, VIEW_W, 3, dark ? rgba(60, 30, 80) : rgba(96, 140, 90));
+    fb.fillEllipse(60, 134, 90, 40, dark ? rgba(26, 18, 40) : rgba(52, 76, 78));
+    fb.fillEllipse(260, 138, 110, 44, dark ? rgba(32, 20, 48) : rgba(58, 84, 82));
+    fb.fillRect(0, 124, VIEW_W, 116, dark ? rgba(24, 16, 36) : rgba(48, 74, 56));
+    fb.fillRect(0, 124, VIEW_W, 3, dark ? rgba(60, 30, 80) : rgba(96, 140, 90));
 
     int shakeX = 0, shakeY = 0;
     if (shakeT_ > 0.0f) {
@@ -484,8 +710,15 @@ void Battle::render(Framebuffer& fb, const Player& p, float time) {
 
     art::enemy(fb, info_.type, ENEMY_X + shakeX, ENEMY_Y + shakeY, t_, hurtT_ > 0.0f);
     art::playerScaled(fb, HERO_X, HERO_Y, 3, 3, 0.0f, false, p.weapon, p.armor);
+    int followerX = HERO_X - 24;
+    int followerY = HERO_Y + 6;
+    for (const auto& c : party) {
+        if (!c.recruited || !c.alive) continue;
+        art::companion(fb, c.id, followerX, followerY, t_, false);
+        followerX -= 22;
+        if (followerX < 4) followerX = HERO_X - 24;
+    }
 
-    // Attack effects.
     if (effect_ > 0 && effectT_ < 0.65f) {
         float k = effectT_ / 0.65f;
         int fade = static_cast<int>((1.0f - k) * 255.0f);
@@ -517,32 +750,43 @@ void Battle::render(Framebuffer& fb, const Player& p, float time) {
             fb.line(ex - 30, y0 + static_cast<int>(k * 8), ex + 30, y1 - static_cast<int>(k * 8),
                     withAlpha(pal::white, fade));
             fb.line(ex + 26, y0, ex - 26, y1, withAlpha(rgba(255, 240, 200), fade / 2));
+        } else if (effect_ == 5) {
+            for (int i = 0; i < 14; ++i) {
+                float a = i * 0.9f + k * 4.0f;
+                int px = ex + static_cast<int>(std::cos(a) * (20 + k * 34));
+                int py = ey + static_cast<int>(std::sin(a) * (18 + k * 26));
+                fb.fillRect(px, py, 2, 2, withAlpha(rgba(190, 160, 255), fade));
+            }
+            fb.fillRectA(0, 0, VIEW_W, 240, rgba(40, 20, 60), fade / 5);
         }
     }
 
     renderEnemyInfo(fb);
 
-    bool showMenu = (phase_ == Phase::Command || phase_ == Phase::SkillMenu || phase_ == Phase::ItemMenu);
+    bool showMenu =
+        (phase_ == Phase::Command || phase_ == Phase::SkillMenu || phase_ == Phase::ItemMenu);
     if (showMenu) {
-        panel(fb, 4, 166, 312, 70);
-        renderStatus(fb, p, 12, 174, 132);
+        panel(fb, 4, 148, 182, 88);
+        renderStatus(fb, p, party, 10, 154, 168);
+        panel(fb, 192, 148, 124, 88);
         renderMenu(fb, p, t_);
     }
     if (phase_ == Phase::Message) renderMessage(fb);
 
     if (phase_ == Phase::Victory) {
-        panel(fb, 46, 62, 228, 116);
-        fb.text(70, 72, "KEMENANGAN!", pal::uiBorder, 2);
-        fb.text(70, 96, std::string(info_.name) + " dikalahkan.", pal::uiText);
-        fb.text(70, 110, "XP +" + std::to_string(xpGained_), pal::xp);
-        fb.text(70, 122, "Emas +" + std::to_string(goldGained_), pal::gold);
-        if (!levelMsg_.empty()) fb.text(70, 138, levelMsg_, pal::hpLight);
-        if (static_cast<int>(t_ * 2.0f) % 2 == 0) fb.text(70, 156, "Z: lanjut", pal::uiTextDim);
+        panel(fb, 40, 54, 240, 124);
+        fb.text(64, 64, "KEMENANGAN!", pal::uiBorder, 2);
+        fb.text(64, 88, std::string(info_.name) + " dikalahkan.", pal::uiText);
+        fb.text(64, 102, "XP +" + std::to_string(xpGained_), pal::xp);
+        fb.text(64, 114, "Keping Garam +" + std::to_string(goldGained_), pal::gold);
+        if (resonanceSpent_) fb.text(64, 126, "Resonansi terkikis.", pal::uiTextDim);
+        if (!levelMsg_.empty()) fb.text(64, 142, levelMsg_, pal::hpLight);
+        if (static_cast<int>(t_ * 2.0f) % 2 == 0) fb.text(64, 162, "Z: lanjut", pal::uiTextDim);
     } else if (phase_ == Phase::Defeat) {
-        panel(fb, 46, 70, 228, 96);
-        fb.text(86, 84, "KAU TUMBANG", pal::hp, 2);
-        fb.text(70, 116, "Kegelapan menutup pandanganmu...", pal::uiTextDim);
-        fb.text(70, 138, "Z: lanjut", pal::uiTextDim);
+        panel(fb, 46, 66, 228, 100);
+        fb.text(86, 80, "KAU TUMBANG", pal::hp, 2);
+        fb.text(70, 112, "Abu menutup pandanganmu...", pal::uiTextDim);
+        fb.text(70, 134, "Z: lanjut", pal::uiTextDim);
     } else if (phase_ == Phase::Fled) {
         panel(fb, 76, 86, 168, 64);
         fb.text(96, 100, "Kau berhasil kabur.", pal::uiText);
@@ -551,7 +795,7 @@ void Battle::render(Framebuffer& fb, const Player& p, float time) {
 
     if (flashT_ > 0.0f) {
         int a = static_cast<int>(clampf(flashT_ / 0.2f, 0.0f, 1.0f) * 60.0f);
-        fb.fillRectA(0, 0, VIEW_W, VIEW_H, pal::white, a);
+        fb.fillRectA(0, 0, VIEW_W, 240, pal::white, a);
     }
 }
 
@@ -562,63 +806,69 @@ void Battle::renderEnemyInfo(Framebuffer& fb) const {
     fb.text(148 - static_cast<int>(lv.size()) * 6, 14, lv, pal::uiTextDim);
     bar(fb, 16, 28, 132, 8, enemyMaxHp_ > 0 ? static_cast<float>(enemyHp_) / enemyMaxHp_ : 0.0f,
         pal::hp, pal::hpDark);
-    if (boss_) {
-        fb.text(16, 40, "BOSS", pal::uiBorder);
-    }
+    if (boss_) fb.text(16, 40, bossPhase_ == 2 ? "BOSS - FASE 2" : "BOSS", pal::uiBorder);
 }
 
-void Battle::renderStatus(Framebuffer& fb, const Player& p, int x, int y, int w) const {
-    fb.text(x, y, "BAGUS", pal::uiText);
-    std::string lv = "Lv " + std::to_string(p.level);
-    fb.text(x + w - static_cast<int>(lv.size()) * 6, y, lv, pal::uiTextDim);
-    fb.text(x, y + 12, "HP", pal::uiTextDim);
-    bar(fb, x + 20, y + 11, w - 24, 8, p.maxHp > 0 ? static_cast<float>(p.hp) / p.maxHp : 0.0f,
+void Battle::renderStatus(Framebuffer& fb, const Player& p, const std::vector<Companion>& party,
+                          int x, int y, int w) const {
+    fb.text(x, y, "RAKA", pal::uiText);
+    fb.text(x, y + 11, "HP", pal::uiTextDim);
+    bar(fb, x + 18, y + 10, w - 40, 5, p.maxHp > 0 ? static_cast<float>(p.hp) / p.maxHp : 0.0f,
         pal::hp, pal::hpDark);
-    fb.text(x, y + 24, "MP", pal::uiTextDim);
-    bar(fb, x + 20, y + 23, w - 24, 8, p.maxMp > 0 ? static_cast<float>(p.mp) / p.maxMp : 0.0f,
-        pal::mp, pal::mpDark);
-    fb.text(x, y + 36, std::to_string(p.hp) + "/" + std::to_string(p.maxHp), pal::uiTextDim);
+    fb.text(x + w - 18, y + 11, std::to_string(p.hp), pal::uiTextDim);
+    int yy = y + 22;
+    for (const auto& c : party) {
+        if (!c.recruited) continue;
+        fb.text(x, yy, c.name, c.alive ? pal::uiText : pal::uiTextDim);
+        bar(fb, x + 58, yy - 1, w - 78, 5,
+            c.maxHp > 0 ? static_cast<float>(c.hp) / c.maxHp : 0.0f,
+            c.alive ? pal::hp : pal::hpDark, pal::hpDark);
+        fb.text(x + w - 18, yy, std::to_string(c.hp), pal::uiTextDim);
+        yy += 11;
+        if (yy > y + 82) break;
+    }
 }
 
 void Battle::renderMenu(Framebuffer& fb, const Player& p, float time) const {
     (void)time;
-    const int x = 158;
+    const int x = 200;
     auto cursor = [&](int rowY) {
         int cy = rowY + 2;
-        fb.fillRect(x - 10, cy, 4, 3, pal::uiBorder);
-        fb.fillRect(x - 8, cy - 2, 2, 7, pal::uiBorder);
+        fb.fillRect(x - 8, cy, 4, 3, pal::uiBorder);
+        fb.fillRect(x - 6, cy - 2, 2, 7, pal::uiBorder);
     };
     if (phase_ == Phase::Command) {
-        const int y = 174;
-        const char* labels[4] = {"Serang", "Sihir", "Item", "Kabur"};
+        const int y = 156;
+        const char* labels[4] = {"Serang", "Gema", "Item", "Kabur"};
         for (int i = 0; i < 4; ++i) {
-            int rowY = y + i * 12;
-            if (i == menuIndex_) fb.fillRect(x - 4, rowY - 2, 152, 11, pal::uiPanelLight);
+            int rowY = y + i * 18;
+            if (i == menuIndex_) fb.fillRect(x - 4, rowY - 2, 112, 15, pal::uiPanelLight);
             fb.text(x, rowY, labels[i], i == menuIndex_ ? pal::white : pal::uiTextDim);
         }
-        cursor(y + menuIndex_ * 12);
-        fb.text(x, 222, "Z: pilih", pal::uiTextDim);
+        cursor(y + menuIndex_ * 18);
+        fb.text(x, 224, "Z: pilih", pal::uiTextDim);
     } else if (phase_ == Phase::SkillMenu) {
-        const char* labels[3] = {"Bola Api  5MP", "Petir     7MP", "Pulihkan  5MP"};
-        fb.text(x, 168, "Sihir", pal::uiBorder);
-        for (int i = 0; i < 3; ++i) {
-            int rowY = 180 + i * 11;
-            if (i == subIndex_) fb.fillRect(x - 4, rowY - 2, 152, 11, pal::uiPanelLight);
+        const char* labels[5] = {"Api Garam  5MP", "Petir Garam 7MP", "Ledakan Rasa 8MP",
+                                 "Kidung Garam 6MP", "Tumbal Rasa 15R"};
+        fb.text(x, 150, "Gema", pal::uiBorder);
+        for (int i = 0; i < 5; ++i) {
+            int rowY = 164 + i * 13;
+            if (i == subIndex_) fb.fillRect(x - 4, rowY - 2, 112, 12, pal::uiPanelLight);
             fb.text(x, rowY, labels[i], i == subIndex_ ? pal::white : pal::uiTextDim);
         }
-        cursor(180 + subIndex_ * 11);
-        fb.text(x, 218, "X: kembali", pal::uiTextDim);
+        cursor(164 + subIndex_ * 13);
+        fb.text(x, 232, "X: kembali", pal::uiTextDim);
     } else if (phase_ == Phase::ItemMenu) {
-        fb.text(x, 168, "Item", pal::uiBorder);
+        fb.text(x, 150, "Item", pal::uiBorder);
         std::string labels[2] = {"Ramuan  x" + std::to_string(p.potions),
                                  "Eliksir x" + std::to_string(p.elixirs)};
         for (int i = 0; i < 2; ++i) {
-            int rowY = 182 + i * 12;
-            if (i == subIndex_) fb.fillRect(x - 4, rowY - 2, 152, 11, pal::uiPanelLight);
+            int rowY = 168 + i * 16;
+            if (i == subIndex_) fb.fillRect(x - 4, rowY - 2, 112, 14, pal::uiPanelLight);
             fb.text(x, rowY, labels[i], i == subIndex_ ? pal::white : pal::uiTextDim);
         }
-        cursor(182 + subIndex_ * 12);
-        fb.text(x, 218, "X: kembali", pal::uiTextDim);
+        cursor(168 + subIndex_ * 16);
+        fb.text(x, 232, "X: kembali", pal::uiTextDim);
     }
 }
 

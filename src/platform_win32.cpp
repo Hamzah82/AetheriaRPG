@@ -23,7 +23,7 @@ namespace rpg {
 
 namespace {
 
-constexpr const char* kWindowClass = "AetheriaWindow";
+constexpr const char* kWindowClass = "PelitaSegaraGaramWindow";
 
 // Windows wants a packed BGRA pixel for a 32-bit DIB section.
 inline uint32_t toBGRA(uint32_t argb) {

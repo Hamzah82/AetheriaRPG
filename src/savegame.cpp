@@ -258,7 +258,7 @@ SaveInfo inspectSave(const std::string& path) {
     info.map = readInt(kv, "map", -1, -1, 1024);
     info.level = readInt(kv, "level", 1, 1, 99);
     info.gold = readInt(kv, "gold", 0, 0, 9999999);
-    info.valid = (info.version == 1 || info.version == 2) && info.map >= 0;
+    info.valid = (info.version == 1 || info.version == 2 || info.version == 3) && info.map >= 0;
     return info;
 }
 

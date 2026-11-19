@@ -212,7 +212,7 @@ bool Platform::open(int scale, const std::string& title, std::string* err,
     XStoreName(d.dpy, d.win, title.c_str());
     XClassHint classHint;
     classHint.res_name = const_cast<char*>("aetheria");
-    classHint.res_class = const_cast<char*>("Aetheria");
+    classHint.res_class = const_cast<char*>("PelitaSegaraGaram");
     XSetClassHint(d.dpy, d.win, &classHint);
     d.setWindowIcon();
     d.useWindowedHints();

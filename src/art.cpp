@@ -108,6 +108,21 @@ void armorDetails(Framebuffer& fb, int x, int y, int s, int dir, const Look& L) 
             fb.fillRect(sx + 2 * s, sy + 5 * s, s, s, dark);
             break;
         }
+        case 4: {
+            // Jubah Pelita: white-gold ceremonial coat with a lantern sigil.
+            const uint32_t plate = 0xFFF0E8D0, edge = 0xFFFFF8E8;
+            const uint32_t dark = 0xFFB8A878;
+            fb.fillRect(x + 1 * s, y + 6 * s, 4 * s, 2 * s, plate);
+            fb.fillRect(x + 11 * s, y + 6 * s, 4 * s, 2 * s, plate);
+            fb.fillRect(x + 1 * s, y + 6 * s, 4 * s, 1 * s, edge);
+            fb.fillRect(x + 11 * s, y + 6 * s, 4 * s, 1 * s, edge);
+            fb.fillRect(x + 4 * s, y + 7 * s, 8 * s, 1 * s, edge);
+            fb.fillRect(x + 4 * s, y + 10 * s, 8 * s, 1 * s, dark);
+            fb.fillRect(x + 6 * s, y + 8 * s, 4 * s, 2 * s, 0xFFFFE9A8);
+            fb.fillRect(x + 7 * s, y + 8 * s, 2 * s, 1 * s, 0xFFB85A1E);
+            fb.fillRect(x + 7 * s, y + 9 * s, 2 * s, 1 * s, 0xFFFFF2C0);
+            break;
+        }
         default:
             break;
     }
@@ -117,7 +132,7 @@ void heldWeapon(Framebuffer& fb, int x, int y, int s, int dir, const Look& L) {
     if (L.weapon < 0) return;
     uint32_t blade = 0xFF8A5A2E, edge = 0xFFC08A4A;
     uint32_t guard = 0xFFB87A3A, grip = 0xFF5A3A1E;
-    switch (clampInt(L.weapon, 0, 3)) {
+    switch (clampInt(L.weapon, 0, 4)) {
         case 0:
             break;
         case 1:
@@ -132,11 +147,17 @@ void heldWeapon(Framebuffer& fb, int x, int y, int s, int dir, const Look& L) {
             guard = 0xFFD0D8E4;
             grip = 0xFF2A2A34;
             break;
-        default:
+        case 3:
             blade = 0xFFFFD870;
             edge = 0xFFFFF6D0;
             guard = 0xFFFFF2C0;
             grip = 0xFF7A4A1A;
+            break;
+        default:
+            blade = 0xFFE8F0FF;
+            edge = 0xFFFFFFFF;
+            guard = 0xFFB8C8E8;
+            grip = 0xFF3A3A52;
             break;
     }
 
@@ -146,7 +167,7 @@ void heldWeapon(Framebuffer& fb, int x, int y, int s, int dir, const Look& L) {
     const bool left = dir == 1 || dir == 2;
     const int handX = left ? 1 : 14;
     const int edgeX = left ? 0 : 15;
-    const int bladeLen = 5 + clampInt(L.weapon, 0, 3);
+    const int bladeLen = 5 + clampInt(L.weapon, 0, 4);
     fb.fillRect(x + handX * s, y + 10 * s, s, 3 * s, grip);
     fb.fillRect(x + (left ? 0 : 12) * s, y + 9 * s, 4 * s, s, guard);
     fb.fillRect(x + handX * s, y + 13 * s, s, s, guard);
@@ -230,8 +251,8 @@ void humanoid(Framebuffer& fb, int x, int y, int s, int dir, float phase, bool m
 
 Look playerLook(int weapon, int armor) {
     Look L{skin, hair, tunic, tunicDark, 0xFF23305A, 0xFF2A1C14, 0xFFE2C275};
-    L.weapon = clampInt(weapon, 0, 3);
-    L.armor = clampInt(armor, 0, 3);
+    L.weapon = clampInt(weapon, 0, 4);
+    L.armor = clampInt(armor, 0, 4);
     switch (L.armor) {
         case 1:
             L.shirt = 0xFF8A5A32;
@@ -277,6 +298,45 @@ Look npcLook(NpcStyle style) {
         case NpcStyle::Guardian:
             return {0xFFE8D8B0, 0xFFE2C275, 0xFFC89A3A, 0xFF8A6420, 0xFF5A4218,
                     0xFF3A2A10, 0xFFFFE9A8};
+        case NpcStyle::MbokRatih:
+            return {0xFFE8B88A, 0xFF7A4A2A, 0xFF8A5A6A, 0xFF5E3A48, 0xFF6A5238, 0xFF3A2A1A,
+                    0xFFE2C275};
+        case NpcStyle::Seno:
+            return {0xFFD8A87A, 0xFF2A2622, 0xFF3A3E48, 0xFF242830, 0xFF2A2A30, 0xFF1A1410,
+                    0xFFB03A3A};
+        case NpcStyle::JokoKeling:
+            return {0xFFC89A6A, 0xFF3A2A1A, 0xFF4A3A2A, 0xFF33281C, 0xFF3A3028, 0xFF241A12,
+                    0xFFD8B878};
+        case NpcStyle::Bima:
+            return {0xFF9A6A42, 0xFF2A201A, 0xFF6A4A2A, 0xFF4A3018, 0xFF3A3028, 0xFF241A12,
+                    0xFF8AD0E0};
+        case NpcStyle::Sekar:
+            return {0xFFE8B88A, 0xFF5A3A22, 0xFF7A4A32, 0xFF543420, 0xFF3A3A44, 0xFF241A12,
+                    0xFFE2C275};
+        case NpcStyle::Larasati:
+            return {0xFFF0D8C8, 0xFFD8D8E0, 0xFFE8E8F0, 0xFFB8B8C8, 0xFF8A8A9A, 0xFF5A5A6A,
+                    0xFFB8E0F0};
+        case NpcStyle::Bagas:
+            return {0xFFB88A5A, 0xFFD8D0C0, 0xFF6A5238, 0xFF4A3824, 0xFF3A3028, 0xFF241A12,
+                    0xFF8A6A3A};
+        case NpcStyle::Nirmala:
+            return {0xFFE8C8A8, 0xFFE8E0D0, 0xFFE8DCC0, 0xFFB8A878, 0xFF8A7A58, 0xFF5A4A32,
+                    0xFFFFE9A8};
+        case NpcStyle::Kirana:
+            return {0xFFF0D0C0, 0xFF4A3A52, 0xFF8A6A8A, 0xFF5E4662, 0xFF4A3A52, 0xFF2A2030,
+                    0xFFE8D8A8};
+        case NpcStyle::Adipati:
+            return {0xFFD8B89A, 0xFF2A2622, 0xFF1E1A24, 0xFF141018, 0xFF241E2E, 0xFF100C14,
+                    0xFFE2C275};
+        case NpcStyle::Guntur:
+            return {0xFFD8CCC0, 0xFF3A3630, 0xFFE8E8E8, 0xFFB8B8B8, 0xFF6A6A72, 0xFF3A3A40,
+                    0xFF8AD0E0};
+        case NpcStyle::Pertapa:
+            return {0xFFB0A89A, 0xFF4A443C, 0xFF5A544A, 0xFF3E3A32, 0xFF3A362E, 0xFF241F1A,
+                    0xFFC8C0B0};
+        case NpcStyle::Pelarian:
+            return {0xFFC0A888, 0xFF3A342C, 0xFF4E4A42, 0xFF38342C, 0xFF3A362E, 0xFF241F1A,
+                    0xFFB8B0A0};
         default:
             return {skin, 0xFF523218, 0xFF4A8A8A, 0xFF2E6666, 0xFF3A3A5A, 0xFF2A1C14, 0xFFE2C275};
     }
@@ -649,8 +709,10 @@ void npc(Framebuffer& fb, int px, int py, NpcStyle style, int dir, float time) {
         return;
     }
     bool guardian = style == NpcStyle::Guardian;
-    humanoid(fb, px, py, 1, dir, 0.0f, false, L, style == NpcStyle::Kid,
-             style == NpcStyle::Guard || guardian, style == NpcStyle::Innkeeper);
+    bool dress = style == NpcStyle::Innkeeper || style == NpcStyle::Larasati ||
+                 style == NpcStyle::Nirmala || style == NpcStyle::Kirana;
+    bool helmet = style == NpcStyle::Guard || guardian || style == NpcStyle::Seno;
+    humanoid(fb, px, py, 1, dir, 0.0f, false, L, style == NpcStyle::Kid, helmet, dress);
     if (guardian) {
         // Gilded aura and a ceremonial blade.
         float pulse = 0.5f + 0.5f * std::sin(time * 2.2f);
@@ -671,6 +733,50 @@ void npc(Framebuffer& fb, int px, int py, NpcStyle style, int dir, float time) {
     } else if (style == NpcStyle::Farmer) {
         fb.fillEllipse(px + 8, py + 2, 6, 2, 0xFFD8B878);
         fb.fillEllipse(px + 8, py + 1, 3, 2, 0xFFE8CC90);
+    } else if (style == NpcStyle::MbokRatih) {
+        fb.fillRect(px + 3, py, 10, 3, 0xFF8A5A6A);
+        fb.fillRect(px + 2, py + 3, 2, 3, 0xFF8A5A6A);
+    } else if (style == NpcStyle::Seno) {
+        fb.fillRect(px + 4, py + 6, 8, 2, 0xFFB03A3A);
+        fb.fillRect(px + 11, py + 6, 2, 6, 0xFFB03A3A);
+    } else if (style == NpcStyle::JokoKeling) {
+        fb.fillRect(px + 4, py + 5, 2, 1, 0xFF101010);
+        fb.fillRect(px + 9, py + 5, 4, 1, 0xFF101010);
+    } else if (style == NpcStyle::Bima) {
+        fb.fillRect(px + 1, py + 7, 2, 6, 0xFFE0E0D8);
+        fb.fillRect(px + 1, py + 7, 2, 1, 0xFFB8C0C8);
+    } else if (style == NpcStyle::Sekar) {
+        fb.fillRect(px + 3, py + 1, 10, 2, 0xFF5A3A22);
+        fb.fillRect(px + 4, py + 1, 2, 1, 0xFFE2C275);
+        fb.fillRect(px + 10, py + 1, 2, 1, 0xFFE2C275);
+        fb.line(px + 14, py + 8, px + 15, py + 15, 0xFFB8C0CC);
+    } else if (style == NpcStyle::Larasati) {
+        fb.fillRect(px + 7, py + 1, 2, 2, 0xFFE8E8F0);
+        fb.vline(px + 14, py + 6, 9, 0xFFD8D8E0);
+    } else if (style == NpcStyle::Bagas) {
+        fb.fillRect(px + 3, py + 4, 10, 2, 0xFF8A2A2A);
+        fb.vline(px + 14, py + 4, 12, 0xFF8A6A3A);
+        fb.fillCircle(px + 14, py + 3, 2, 0xFFD8B878);
+    } else if (style == NpcStyle::Nirmala) {
+        fb.fillRect(px + 2, py, 12, 3, 0xFFE8DCC0);
+        fb.fillRect(px + 1, py + 3, 3, 5, 0xFFE8DCC0);
+        fb.fillRect(px + 12, py + 3, 3, 5, 0xFFE8DCC0);
+    } else if (style == NpcStyle::Kirana) {
+        fb.fillRect(px + 2, py + 12, 12, 3, 0xFF6A4A2A);
+        fb.fillCircle(px + 4, py + 15, 3, 0xFF3A2A1A);
+        fb.fillCircle(px + 12, py + 15, 3, 0xFF3A2A1A);
+        fb.fillRect(px + 5, py + 10, 6, 2, 0xFF8A6A8A);
+    } else if (style == NpcStyle::Adipati) {
+        fb.fillRect(px + 13, py + 10, 2, 2, 0xFFF0E8D0);
+        fb.fillCircle(px + 8, py + 1, 1, 0xFFE2C275);
+    } else if (style == NpcStyle::Guntur) {
+        fb.fillRect(px + 4, py + 4, 3, 2, 0xFF8AD0E0);
+        fb.fillRect(px + 9, py + 4, 3, 2, 0xFF8AD0E0);
+        fb.fillRect(px + 7, py + 5, 2, 1, 0xFF3A3630);
+    } else if (style == NpcStyle::Pertapa || style == NpcStyle::Pelarian) {
+        fb.fillRect(px + 2, py, 12, 4, 0xFF4A443C);
+        fb.fillRect(px + 1, py + 4, 3, 5, 0xFF4A443C);
+        fb.fillRect(px + 12, py + 4, 3, 5, 0xFF4A443C);
     }
 }
 
@@ -705,7 +811,7 @@ void wardenWorld(Framebuffer& fb, int px, int py, float time) {
 
 void enemy(Framebuffer& fb, EnemyType type, int cx, int cy, float time, bool hurt) {
     switch (type) {
-        case EnemyType::Slime: {
+        case EnemyType::KumbangPualam: {
             int bob = static_cast<int>(std::sin(time * 2.2f) * 2.0f);
             int sy = cy + bob;
             shadow(fb, cx, cy + 15, 14, 4, 100);
@@ -719,7 +825,7 @@ void enemy(Framebuffer& fb, EnemyType type, int cx, int cy, float time, bool hur
             if (hurt) fb.fillEllipseA(cx, sy, 14, 11, white, 130);
             break;
         }
-        case EnemyType::Bat: {
+        case EnemyType::Koral: {
             shadow(fb, cx, cy + 18, 10, 3, 90);
             int flap = static_cast<int>(std::sin(time * 9.0f) * 8.0f);
             tri(fb, cx - 6, cy - 2, cx - 26, cy - 10 + flap, cx - 8, cy + 8, 0xFF4A2A5A);
@@ -736,7 +842,7 @@ void enemy(Framebuffer& fb, EnemyType type, int cx, int cy, float time, bool hur
             if (hurt) fb.fillEllipseA(cx, cy, 12, 16, white, 130);
             break;
         }
-        case EnemyType::Wolf: {
+        case EnemyType::GukAbu: {
             shadow(fb, cx, cy + 16, 20, 4, 100);
             tri(fb, cx - 16, cy - 2, cx - 28, cy - 12, cx - 20, cy + 4, 0xFF4A4A58);
             fb.fillEllipse(cx - 2, cy + 3, 18, 10, 0xFF3A3A48);
@@ -756,7 +862,7 @@ void enemy(Framebuffer& fb, EnemyType type, int cx, int cy, float time, bool hur
             if (hurt) fb.fillEllipseA(cx, cy, 24, 16, white, 120);
             break;
         }
-        case EnemyType::Skeleton: {
+        case EnemyType::PenambangPualam: {
             shadow(fb, cx, cy + 18, 12, 3, 90);
             uint32_t bone = 0xFFE8E2D0, boneDark = 0xFFA8A090;
             fb.vline(cx, cy - 2, 12, bone);
@@ -782,11 +888,11 @@ void enemy(Framebuffer& fb, EnemyType type, int cx, int cy, float time, bool hur
             if (hurt) fb.fillEllipseA(cx, cy, 16, 22, white, 120);
             break;
         }
-        case EnemyType::Warden:
+        case EnemyType::GemaPertama:
             wardenCore(fb, cx, cy - 16, time, 62);
             if (hurt) fb.fillEllipseA(cx, cy, 34, 40, white, 90);
             break;
-        case EnemyType::Guardian: {
+        case EnemyType::Inkuisitor: {
             // Fallen guardian of the Dawn Ruins: gilded plate, tower shield,
             // and a sunblade that never stopped burning.
             shadow(fb, cx, cy + 20, 18, 4, 110);
@@ -853,6 +959,53 @@ void enemy(Framebuffer& fb, EnemyType type, int cx, int cy, float time, bool hur
             if (hurt) fb.fillEllipseA(cx, cy, 30, 36, white, 120);
             break;
         }
+        case EnemyType::ArwahGema: {
+            shadow(fb, cx, cy + 18, 12, 3, 90);
+            float pulse = 0.5f + 0.5f * std::sin(time * 2.0f);
+            uint32_t ghost = withAlpha(0xFF9AD8E8, 150 + static_cast<int>(pulse * 60));
+            fb.fillEllipse(cx, cy, 14, 18, ghost);
+            fb.fillEllipse(cx, cy + 12, 10, 8, withAlpha(0xFF9AD8E8, 90));
+            fb.fillCircle(cx, cy - 10, 9, ghost);
+            fb.fillRect(cx - 5, cy - 12, 3, 3, 0xFF10303A);
+            fb.fillRect(cx + 2, cy - 12, 3, 3, 0xFF10303A);
+            if (hurt) fb.fillEllipseA(cx, cy, 18, 24, white, 130);
+            break;
+        }
+        case EnemyType::Gajamina: {
+            shadow(fb, cx, cy + 24, 30, 5, 110);
+            uint32_t stone = 0xFFB8B4A8, stoneDark = 0xFF8A8478, stoneLight = 0xFFE0DCC8;
+            fb.fillEllipse(cx, cy + 4, 44, 22, stoneDark);
+            fb.fillEllipse(cx, cy + 2, 42, 20, stone);
+            fb.fillEllipse(cx - 24, cy - 2, 12, 10, stoneDark);
+            tri(fb, cx + 20, cy - 6, cx + 40, cy - 16, cx + 34, cy + 4, stone);
+            tri(fb, cx + 20, cy + 8, cx + 38, cy + 18, cx + 30, cy + 14, stoneDark);
+            fb.fillCircle(cx - 18, cy - 4, 3, 0xFF101010);
+            fb.fillRect(cx - 34, cy + 2, 10, 2, stoneLight);
+            if (hurt) fb.fillEllipseA(cx, cy, 44, 26, white, 120);
+            break;
+        }
+        case EnemyType::Guntur: {
+            Look L{0xFFD8CCC0, 0xFF3A3630, 0xFFE8E8E8, 0xFFB8B8B8, 0xFF6A6A72, 0xFF3A3A40,
+                   0xFF8AD0E0};
+            L.weapon = 2;
+            humanoid(fb, cx - 8, cy - 16, 2, 3, time * 0.5f, false, L);
+            fb.fillRect(cx - 2, cy - 22, 4, 2, 0xFF8AD0E0);
+            fb.fillRect(cx + 4, cy - 22, 4, 2, 0xFF8AD0E0);
+            if (hurt) fb.fillEllipseA(cx, cy, 24, 30, white, 120);
+            break;
+        }
+        case EnemyType::Adipati: {
+            Look L{0xFFD8B89A, 0xFF2A2622, 0xFF1E1A24, 0xFF141018, 0xFF241E2E, 0xFF100C14,
+                   0xFFE2C275};
+            L.armor = 3;
+            humanoid(fb, cx - 8, cy - 16, 2, 3, 0.0f, false, L, false, false, true);
+            fb.fillRect(cx - 4, cy - 24, 8, 2, 0xFFE2C275);
+            fb.fillCircle(cx, cy - 26, 2, 0xFFFFD87A);
+            if (hurt) fb.fillEllipseA(cx, cy, 26, 32, white, 120);
+            break;
+        }
+        case EnemyType::Count:
+            break;
     }
 }
 
@@ -861,7 +1014,7 @@ void enemy(Framebuffer& fb, EnemyType type, int cx, int cy, float time, bool hur
 void enemyWorld(Framebuffer& fb, EnemyType type, int px, int py, float time) {
     int cx = px + 8;
     switch (type) {
-        case EnemyType::Slime: {
+        case EnemyType::KumbangPualam: {
             int bob = static_cast<int>(std::sin(time * 3.0f) * 1.0f);
             int cy = py + 10 + bob;
             shadow(fb, cx, py + 14, 7, 2, 90);
@@ -872,7 +1025,7 @@ void enemyWorld(Framebuffer& fb, EnemyType type, int px, int py, float time) {
             fb.fillRect(cx + 2, cy, 1, 2, 0xFF14301A);
             break;
         }
-        case EnemyType::Bat: {
+        case EnemyType::Koral: {
             int flap = static_cast<int>(std::sin(time * 10.0f) * 3.0f);
             shadow(fb, cx, py + 15, 5, 2, 70);
             tri(fb, cx - 3, py + 8, cx - 9, py + 4 + flap, cx - 4, py + 11, 0xFF4A2A5A);
@@ -885,7 +1038,7 @@ void enemyWorld(Framebuffer& fb, EnemyType type, int px, int py, float time) {
             fb.fillRect(cx + 1, py + 5, 1, 1, 0xFFFF4A6A);
             break;
         }
-        case EnemyType::Wolf: {
+        case EnemyType::GukAbu: {
             shadow(fb, cx, py + 15, 9, 2, 90);
             tri(fb, cx - 6, py + 9, cx - 10, py + 5, cx - 7, py + 12, 0xFF4A4A58);
             fb.fillEllipse(cx, py + 10, 7, 4, 0xFF6A6A7C);
@@ -898,7 +1051,7 @@ void enemyWorld(Framebuffer& fb, EnemyType type, int px, int py, float time) {
             fb.fillRect(cx + 7, py + 7, 1, 1, 0xFFFF3A3A);
             break;
         }
-        case EnemyType::Skeleton: {
+        case EnemyType::PenambangPualam: {
             shadow(fb, cx, py + 15, 5, 2, 80);
             uint32_t bone = 0xFFE8E2D0, boneDark = 0xFFA8A090;
             fb.fillCircle(cx, py + 5, 3, bone);
@@ -913,6 +1066,48 @@ void enemyWorld(Framebuffer& fb, EnemyType type, int px, int py, float time) {
             fb.fillRect(cx + 4, py + 8, 2, 1, boneDark);
             break;
         }
+        case EnemyType::ArwahGema: {
+            float pulse = 0.5f + 0.5f * std::sin(time * 2.0f);
+            uint32_t ghost = withAlpha(0xFF9AD8E8, 150 + static_cast<int>(pulse * 60));
+            fb.fillEllipse(cx, py + 8, 6, 7, ghost);
+            fb.fillCircle(cx, py + 4, 4, ghost);
+            fb.fillRect(cx - 2, py + 3, 1, 1, 0xFF10303A);
+            fb.fillRect(cx + 1, py + 3, 1, 1, 0xFF10303A);
+            break;
+        }
+        case EnemyType::Gajamina: {
+            shadow(fb, cx, py + 15, 12, 2, 90);
+            fb.fillEllipse(cx, py + 9, 14, 7, 0xFF8A8478);
+            fb.fillEllipse(cx, py + 8, 13, 6, 0xFFB8B4A8);
+            tri(fb, cx + 8, py + 6, cx + 14, py + 3, cx + 12, py + 10, 0xFFB8B4A8);
+            fb.fillCircle(cx - 5, py + 6, 1, 0xFF101010);
+            break;
+        }
+        case EnemyType::Guntur: {
+            Look L{0xFFD8CCC0, 0xFF3A3630, 0xFFE8E8E8, 0xFFB8B8B8, 0xFF6A6A72, 0xFF3A3A40,
+                   0xFF8AD0E0};
+            humanoid(fb, px, py, 1, 3, 0.0f, false, L);
+            fb.fillRect(px + 4, py + 4, 3, 2, 0xFF8AD0E0);
+            fb.fillRect(px + 9, py + 4, 3, 2, 0xFF8AD0E0);
+            break;
+        }
+        case EnemyType::Adipati: {
+            Look L{0xFFD8B89A, 0xFF2A2622, 0xFF1E1A24, 0xFF141018, 0xFF241E2E, 0xFF100C14,
+                   0xFFE2C275};
+            L.armor = 3;
+            humanoid(fb, px, py, 1, 3, 0.0f, false, L, false, false, true);
+            break;
+        }
+        case EnemyType::Inkuisitor: {
+            Look L{0xFFD8B89A, 0xFF2A2622, 0xFF3A3E48, 0xFF242830, 0xFF2A2A30, 0xFF1A1410,
+                   0xFFB03A3A};
+            L.armor = 2;
+            humanoid(fb, px, py, 1, 3, 0.0f, false, L, false, true, false);
+            break;
+        }
+        case EnemyType::GemaPertama:
+            wardenWorld(fb, px, py, time);
+            break;
         default: {
             shadow(fb, cx, py + 15, 6, 2, 80);
             fb.fillEllipse(cx, py + 9, 6, 5, 0xFF241A38);
@@ -922,6 +1117,79 @@ void enemyWorld(Framebuffer& fb, EnemyType type, int px, int py, float time) {
             break;
         }
     }
+}
+
+void companion(Framebuffer& fb, CompanionId id, int px, int py, float time, bool moving) {
+    Look L = npcLook(NpcStyle::Villager);
+    switch (id) {
+        case CompanionId::Sekar:
+            L = npcLook(NpcStyle::Sekar);
+            L.weapon = 3;
+            L.armor = 2;
+            break;
+        case CompanionId::Bima:
+            L = npcLook(NpcStyle::Bima);
+            L.weapon = 1;
+            L.armor = 3;
+            break;
+        case CompanionId::Larasati:
+            L = npcLook(NpcStyle::Larasati);
+            L.weapon = 2;
+            L.armor = 1;
+            break;
+        case CompanionId::Bagas:
+            L = npcLook(NpcStyle::Bagas);
+            L.weapon = 1;
+            L.armor = 2;
+            break;
+        default:
+            break;
+    }
+    humanoid(fb, px, py, 1, 3, time * 0.5f, moving, L, false, false,
+             id == CompanionId::Larasati);
+    if (id == CompanionId::Bima) {
+        fb.fillRect(px + 1, py + 7, 2, 6, 0xFFE0E0D8);
+        fb.fillRect(px + 1, py + 7, 2, 1, 0xFFB8C0C8);
+    } else if (id == CompanionId::Sekar) {
+        fb.fillRect(px + 3, py + 1, 10, 2, 0xFF5A3A22);
+        fb.fillRect(px + 4, py + 1, 2, 1, 0xFFE2C275);
+        fb.fillRect(px + 10, py + 1, 2, 1, 0xFFE2C275);
+    } else if (id == CompanionId::Bagas) {
+        fb.fillRect(px + 3, py + 4, 10, 2, 0xFF8A2A2A);
+        fb.vline(px + 14, py + 4, 12, 0xFF8A6A3A);
+    } else if (id == CompanionId::Larasati) {
+        fb.vline(px + 14, py + 6, 9, 0xFFD8D8E0);
+    }
+}
+
+void echoSpot(Framebuffer& fb, int px, int py, float time, bool active) {
+    int cx = px + 8;
+    int cy = py + 8;
+    float pulse = 0.5f + 0.5f * std::sin(time * 2.4f + px * 0.1f);
+    uint32_t glow = active ? withAlpha(0xFF9AD8E8, 60 + static_cast<int>(pulse * 80))
+                           : withAlpha(0xFF6A7080, 40);
+    fb.fillEllipseA(cx, cy, 9, 10, glow, alphaOf(glow));
+    uint32_t crystal = active ? 0xFFB8E8F8 : 0xFF7A8090;
+    uint32_t crystalDark = active ? 0xFF5A9AB8 : 0xFF4A5058;
+    tri(fb, cx, cy - 8, cx - 4, cy, cx, cy + 2, crystal);
+    tri(fb, cx, cy - 8, cx + 4, cy, cx, cy + 2, crystalDark);
+    tri(fb, cx - 4, cy, cx, cy + 2, cx, cy + 8, crystalDark);
+    tri(fb, cx + 4, cy, cx, cy + 2, cx, cy + 8, crystal);
+    fb.pixel(cx - 1, cy - 4, white);
+}
+
+void campfire(Framebuffer& fb, int px, int py, float time) {
+    int cx = px + 8;
+    int cy = py + 10;
+    shadow(fb, cx, py + 14, 7, 2, 80);
+    fb.fillEllipse(cx - 6, cy + 3, 4, 2, 0xFF8A8E98);
+    fb.fillEllipse(cx + 6, cy + 3, 4, 2, 0xFF8A8E98);
+    fb.fillRect(cx - 5, cy + 1, 10, 2, 0xFF6A4A28);
+    fb.fillRect(cx - 4, cy - 1, 8, 2, 0xFF54381E);
+    float flame = 0.5f + 0.5f * std::sin(time * 7.0f + px);
+    fb.fillEllipse(cx, cy - 3, 3, 4 + static_cast<int>(flame), 0xFFFF8A2A);
+    fb.fillEllipse(cx, cy - 2, 2, 3, 0xFFFFD87A);
+    fb.fillRect(cx - 1, cy - 6 - static_cast<int>(flame * 2), 1, 2, 0xFFFFE9A8);
 }
 
 }  // namespace art

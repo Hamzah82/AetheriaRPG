@@ -1,4 +1,4 @@
-// game.h - world exploration, menus, save system, overall state machine
+// game.h - exploration, story, menus, save system, overall state machine
 #pragma once
 #include <functional>
 #include <string>
@@ -8,6 +8,7 @@
 #include "battle.h"
 #include "core.h"
 #include "gfx.h"
+#include "party.h"
 #include "player.h"
 #include "savegame.h"
 #include "world.h"
@@ -20,15 +21,37 @@ class Updater;
 enum class GameState { Title, Explore, Dialogue, Battle, Menu, Shop, GameOver, Ending };
 
 struct Flags {
-    bool questAccepted = false;
-    bool bossDefeated = false;
-    bool sunstoneFound = false;
-    bool gameCompleted = false;
-    bool metElder = false;
+    int act = 0;  // 0 prologue, 1..4 main acts
+    int stage = 0;
+    int resonance = 70;
+    int memories = 0;  // 12-bit mask of memory fragments
+
     bool introSeen = false;
+    bool courierSaved = false;
+    bool bimaJoined = false;
+    bool sekarJoined = false;
+    bool larasJoined = false;
+    bool bagasJoined = false;
+    bool fatherMemory = false;
+    bool nirmalaTruth = false;
+    bool kiranaHelped = false;
+    bool senoDefect = false;
+    bool gunturDefeated = false;
+    bool gemaDefeated = false;
+    bool gameCompleted = false;
+
     bool herbQuestAccepted = false;
     bool herbQuestDone = false;
-    bool ruinsCleared = false;
+    bool lanternQuestAccepted = false;
+    bool lanternQuestDone = false;
+    bool sekarQuestAccepted = false;
+    bool sekarQuestDone = false;
+    bool hiddenQuestDone = false;
+    bool gajaminaDefeated = false;
+
+    int endingId = 0;  // 1 true, 2 good, 3 bad, 4 secret
+    int senoChoice = 0;
+    int sekarChoice = 0;
 };
 
 struct Particle {
@@ -48,11 +71,9 @@ struct FlyingText {
     uint32_t color = 0xFFFFFFFF;
 };
 
-// A monster that lives on the map and wanders around its spawn point instead
-// of appearing from a random step. Touching it starts a battle.
 struct RoamingEnemy {
-    EnemyType type = EnemyType::Slime;
-    float x = 0.0f, y = 0.0f;  // top-left of the 16x16 sprite cell
+    EnemyType type = EnemyType::KumbangPualam;
+    float x = 0.0f, y = 0.0f;
     float homeX = 0.0f, homeY = 0.0f;
     float dirX = 0.0f, dirY = 0.0f;
     float moveTimer = 0.0f;
@@ -62,23 +83,32 @@ struct RoamingEnemy {
     bool active = true;
 };
 
+struct DialogueChoice {
+    std::string text;
+    int resonanceDelta = 0;
+    std::function<void()> action;
+};
+
 struct DialogueState {
     std::vector<std::string> pages;
+    std::vector<DialogueChoice> choices;
     std::string speaker;
     int page = 0;
     float chars = 0.0f;
     bool active = false;
+    bool choosing = false;
+    int choiceIndex = 0;
     std::function<void()> onClose;
 };
 
 struct ShopItem {
-    int kind;  // 0 potion, 1 elixir, 2 weapon, 3 armor
+    int kind;  // 0 potion, 1 elixir, 2 oil, 3 weapon, 4 armor
     int index;
     const char* name;
     int price;
 };
 
-constexpr int SHOP_COUNT = 6;
+constexpr int SHOP_COUNT = 7;
 extern const ShopItem SHOP[SHOP_COUNT];
 
 class Game {
@@ -104,14 +134,19 @@ public:
     const Battle& battle() const { return battle_; }
     Battle& battle() { return battle_; }
     bool transitionActive() const { return transition_; }
+    int resonance() const { return flags_.resonance; }
+    int memoryCount() const;
+    bool hasMemory(int id) const;
+    int act() const { return flags_.act; }
+    int endingId() const { return flags_.endingId; }
+    int companionCount() const;
+    const Companion& companion(int index) const;
 
     void newGame();
     bool hasSave() const;
     bool saveGame(std::string* err = nullptr);
     bool loadGame(std::string* err = nullptr);
 
-    // Save slots. Slot 0 is the classic savegame.dat path; slots 1-2 add
-    // suffixes and -1 is the automatic save written at story checkpoints.
     int saveSlot() const { return saveSlot_; }
     bool anySaveExists() const;
     bool saveToSlot(int slot, std::string* err = nullptr);
@@ -121,16 +156,9 @@ public:
     std::string questObjective() const;
     std::string sideQuestObjective() const;
 
-    // True once after an audio setting changed, so main can persist it.
     bool takeSettingsDirty();
-
-    // Audio is optional; passing nullptr (or never calling this) keeps the
-    // game completely silent, which tests and screenshot runs rely on.
     void setAudio(Audio* audio);
-
-    // Optional in-game updater; when nullptr the title menu reports that
-    // updating is unavailable (tests, headless, and screenshot runs).
-    void setUpdater(Updater* updater);
+    void setUpdater(Updater* updater) { updater_ = updater; }
     bool restartRequested() const { return restart_; }
 
     // Debug/test hooks (also used by the screenshot tool).
@@ -157,6 +185,8 @@ public:
     void debugGameOver();
     int debugEnemyCount() const;
     const RoamingEnemy& debugEnemy(int index) const;
+    void debugSetAct(int act) { flags_.act = clampInt(act, 0, 4); }
+    void debugRecruit(CompanionId id);
 
 private:
     void updateTitle(float dt, const InputState& in);
@@ -170,10 +200,13 @@ private:
 
     void updateParticles(float dt);
     void updateTransition(float dt);
+    void updateFollowers(float dt);
 
     void startDialogue(const std::string& speaker, const std::vector<std::string>& pages,
-                       std::function<void()> onClose = nullptr);
+                       std::function<void()> onClose = nullptr,
+                       const std::vector<DialogueChoice>& choices = {});
     void closeDialogue();
+    void applyChoice(int index);
 
     void startTransition(std::function<void()> action);
     void changeMap(int target, int spawnTileX, int spawnTileY, int facing);
@@ -184,15 +217,27 @@ private:
     void checkPortal();
     void interact();
     void openChest(const ChestSpawn& chest, int index);
-    void elderTalk();
-    void innTalk();
-    void guardTalk();
-    void wardenTalk();
-    void guardianTalk();
-    void flavorTalk(int dialogueId);
+    void talkToNpc(const NpcSpawn& npc);
+    void talkMbokRatih();
+    void talkSeno();
+    void talkJoko();
+    void talkBima();
+    void talkSekar();
+    void talkLarasati();
+    void talkBagas();
+    void talkNirmala();
+    void talkKirana();
+    void talkAdipati();
+    void talkGuntur();
+    void talkFlavor(int dialogueId);
+    void recruit(CompanionId id, int level);
+    void addMemory(int id);
+    void readEcho(int id);
+    void restCampfire();
+    void advanceActIfReady();
+    void startBoss(EnemyType type);
+    void finishGame();
 
-    // Visible roaming monsters: deterministic spawn per map, slow wandering
-    // inside their habitat, and touch-triggered battles.
     void resetRoamingEnemies(float avoidX = -1.0f, float avoidY = -1.0f);
     void spawnRoamingEnemies(int map, float avoidX, float avoidY);
     void updateEnemies(float dt);
@@ -222,7 +267,6 @@ private:
     int tileOfX(float x) const { return static_cast<int>(std::floor(x / TILE)); }
     int tileOfY(float y) const { return static_cast<int>(std::floor(y / TILE)); }
 
-    // Render passes.
     void renderTitle(Framebuffer& fb);
     void renderExplore(Framebuffer& fb);
     void renderDialogue(Framebuffer& fb);
@@ -268,6 +312,8 @@ private:
     float titleMsgTimer_ = 0.0f;
 
     DialogueState dlg_;
+    std::vector<Companion> companions_;
+    std::vector<Vec2> followers_;
 
     float stepAccum_ = 0.0f;
     float portalCooldown_ = 0.0f;

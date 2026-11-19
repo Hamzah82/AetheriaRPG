@@ -1,4 +1,4 @@
-// battle.h - turn based combat
+// battle.h - party-based turn combat
 #pragma once
 #include <string>
 #include <vector>
@@ -6,6 +6,7 @@
 #include "audio_synth.h"
 #include "core.h"
 #include "gfx.h"
+#include "party.h"
 #include "player.h"
 #include "world.h"
 
@@ -31,10 +32,11 @@ class Battle {
 public:
     enum class Phase { Message, Command, SkillMenu, ItemMenu, Victory, Defeat, Fled };
 
-    void begin(Player& p, EnemyType type, bool boss, uint64_t seed);
+    void begin(Player& p, EnemyType type, bool boss, uint64_t seed,
+               std::vector<Companion>* party = nullptr, int* resonance = nullptr);
     void setAudio(Audio* audio) { audio_ = audio; }
-    void update(float dt, const InputState& in, Player& p);
-    void render(Framebuffer& fb, const Player& p, float time);
+    void update(float dt, const InputState& in, Player& p, std::vector<Companion>& party);
+    void render(Framebuffer& fb, const Player& p, const std::vector<Companion>& party, float time);
 
     bool done() const { return done_; }
     bool victory() const { return victory_; }
@@ -44,6 +46,7 @@ public:
     Phase phase() const { return phase_; }
     int enemyHp() const { return enemyHp_; }
     int enemyMaxHp() const { return enemyMaxHp_; }
+    bool resonanceSpent() const { return resonanceSpent_; }
 
     // Debug/test hooks.
     void forceEnemyHp(int hp) { enemyHp_ = clampInt(hp, 0, enemyMaxHp_); }
@@ -54,32 +57,37 @@ public:
     }
 
 private:
-    enum class Next { Command, EnemyTurn, Victory, Defeat, Fled };
+    enum class Next { Command, EnemyTurn, CompanionTurn, Victory, Defeat, Fled };
 
     void pushMessage(const std::string& m);
     void sfx(SfxId id);
-    void finishMessages(Player& p);
+    void finishMessages(Player& p, std::vector<Companion>& party);
     void goCommand();
     void playerAttack(Player& p);
-    void castFire(Player& p);
-    void castThunder(Player& p);
-    void castHeal(Player& p);
+    void castSkill(Player& p, int index);
     void useItem(Player& p, bool elixir);
     void tryFlee(Player& p);
-    void enemyTurn(Player& p);
+    void enemyTurn(Player& p, std::vector<Companion>& party);
+    void companionTurn(Player& p, std::vector<Companion>& party);
     void applyRewards(Player& p);
 
     void renderPanel(Framebuffer& fb, int x, int y, int w, int h) const;
     void renderMenu(Framebuffer& fb, const Player& p, float time) const;
     void renderMessage(Framebuffer& fb) const;
     void renderEnemyInfo(Framebuffer& fb) const;
-    void renderStatus(Framebuffer& fb, const Player& p, int x, int y, int w) const;
+    void renderStatus(Framebuffer& fb, const Player& p, const std::vector<Companion>& party,
+                      int x, int y, int w) const;
 
     Audio* audio_ = nullptr;
-    EnemyInfo info_{EnemyType::Slime, "Slime", 1, 10, 3, 1, 5, 3, 0};
+    EnemyInfo info_{EnemyType::KumbangPualam, "Kumbang Pualam", 1, 10, 3, 1, 5, 3, 0};
     int enemyHp_ = 10;
     int enemyMaxHp_ = 10;
     bool boss_ = false;
+    int bossPhase_ = 1;
+    bool resonanceSpent_ = false;
+
+    std::vector<Companion>* party_ = nullptr;
+    int* resonance_ = nullptr;
 
     Phase phase_ = Phase::Command;
     Next next_ = Next::Command;
@@ -92,6 +100,11 @@ private:
     int menuIndex_ = 0;
     int subIndex_ = 0;
     int turnCount_ = 0;
+    int companionIndex_ = 0;
+    int guard_ = 0;
+    int enemyStun_ = 0;
+    int enemyDefDown_ = 0;
+    bool tumbalUsed_ = false;
 
     Rng rng_{1};
     float t_ = 0.0f;
@@ -99,7 +112,7 @@ private:
     float shakeT_ = 0.0f;
     float flashT_ = 0.0f;
     float healT_ = 0.0f;
-    int effect_ = 0;  // 1 fire, 2 thunder, 3 heal, 4 slash
+    int effect_ = 0;  // 1 fire, 2 thunder, 3 heal, 4 slash, 5 memory
     float effectT_ = 0.0f;
 
     int xpGained_ = 0;
