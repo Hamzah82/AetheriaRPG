@@ -268,7 +268,10 @@ bool Game::anySaveExists() const { return rpg::anySaveExists(saveBase_); }
 std::string Game::slotSummary(int slot) const {
     SaveInfo info = inspectSave(slotPath(saveBase_, slot));
     if (!info.exists) return "Kosong";
-    if (!info.valid) return "Berkas rusak";
+    if (!info.valid) {
+        if (info.version >= 1 && info.version <= 2) return "Tidak kompatibel";
+        return "Berkas rusak";
+    }
     std::string mapName =
         (info.map >= 0 && info.map < world_.count()) ? world_.def(info.map).name : "?";
     return "Lv " + std::to_string(info.level) + "  " + mapName + "  " +
@@ -406,7 +409,8 @@ bool Game::readSaveFrom(const std::string& path, std::string* err) {
     };
 
     int version = getInt("version", 0, 0, 999);
-    if (version != 1 && version != 2 && version != 3) return fail("Versi simpanan tidak dikenal.");
+    if (version != 3)
+        return fail("Simpanan lama tidak kompatibel dengan cerita baru. Mulailah permainan baru.");
     int newMap = getInt("map", -1, -1, world_.count());
     if (newMap < 0 || newMap >= world_.count()) return fail("Peta pada simpanan tidak valid.");
 

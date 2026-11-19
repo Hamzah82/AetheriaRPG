@@ -303,17 +303,18 @@ void testSaveGame() {
     CHECK_EQ(inspectSave(base).gold, 777);
     CHECK(anySaveExists(base));
 
-    // Legacy plaintext version 2 still loads and is upgraded on load.
+    // Saves from the previous Aetheria build are explicitly incompatible with the
+    // new story and must not be loaded as a random state.
     {
         std::ofstream old(base, std::ios::binary | std::ios::trunc);
         old << "version 2\nmap 0\nx 224\ny 256\nlevel 2\ngold 42\n";
     }
     Game legacy(7, base);
-    CHECK(legacy.loadGame(&err));
-    CHECK_EQ(legacy.player().level, 2);
-    CHECK_EQ(legacy.player().gold, 42);
-    CHECK(inspectSave(base).version == 3);
-    CHECK(readFile(base).rfind("AETHSAVE1", 0) == 0);
+    CHECK(!legacy.loadGame(&err));
+    CHECK(err.find("tidak kompatibel") != std::string::npos);
+    SaveInfo oldInfo = inspectSave(base);
+    CHECK(!oldInfo.valid);
+    CHECK_EQ(g.slotSummary(0), "Tidak kompatibel");
 
     // Corrupt saves are rejected.
     writeFile(base, "version 99\nmap 0\n");

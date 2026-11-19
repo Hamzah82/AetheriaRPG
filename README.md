@@ -99,8 +99,8 @@ Portal penting disegel berdasarkan act, sehingga cerita tidak bisa dilompati sem
 - Slot: `savegame.dat` (Slot 1), `savegame-2.dat`, `savegame-3.dat`, dan
   `savegame-auto.dat` (autosave).
 - Berkas simpanan **dikodekan dan dilindungi checksum**; suntingan manual akan ditolak.
-  Simpanan lama versi 1/2 tetap dapat dimuat dan otomatis ditulis ulang dalam format
-  terkode saat dimuat.
+- Simpanan dari build Aetheria sebelumnya **tidak kompatibel** dengan cerita baru;
+  mulailah permainan baru. Simpanan baru memakai versi 3.
 - Penyimpanan atomik melalui berkas sementara; aman di Linux dan Windows.
 
 ## Instalasi
